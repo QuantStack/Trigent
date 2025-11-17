@@ -404,7 +404,7 @@ def calc_engagements_per_day(engagements: int, age_days: int) -> float:
 def enrich_issue(
     issue: dict[str, Any], api_key: str | None, model: str
 ) -> dict[str, Any]:
-    """Enrich a single issue with additional metrics and embeddings."""
+    """Enrich a single issue with embeddings, summary, conversation, and metrics."""
     enriched = issue.copy()
 
     # Debug: Check issue structure and handle missing keys
@@ -442,6 +442,9 @@ def enrich_issue(
         enriched["engagements"], enriched["age_days"]
     )
 
+    # Add summary
+    enriched["summary"] = get_issue_summary(enriched, api_key)
+
     return enriched
 
 
@@ -477,23 +480,34 @@ def add_quartile_columns(issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return df.to_dict("records")
 
 
-def add_summaries(
-    issues: list[dict[str, Any]], api_key: str | None, model: str = "mistral-small"
-) -> list[dict[str, Any]]:
-    """Add AI-generated summaries to issues (must run after quartiles are added)."""
-    if not api_key:
-        print("⚠️  No API key provided, skipping summaries")
-        for issue in issues:
-            issue["summary"] = None
-        return issues
+def enrich_metrics_only(
+    issue: dict[str, Any]
+) -> dict[str, Any]:
+    """Enrich issue with metrics only (no embeddings or summaries)."""
+    enriched = issue.copy()
 
-    print(f"📝 Generating summaries for {len(issues)} issues...")
+    # Initialize recommendations field as empty list if not present
+    if "recommendations" not in enriched:
+        enriched["recommendations"] = []
 
-    for issue in issues:
-        print(f"🔧 Generating summary for issue #{issue['number']}")
-        issue["summary"] = get_issue_summary(issue, api_key, model)
+    # Add conversation column
+    enriched["conversation"] = create_conversation_column(issue)
 
-    return issues
+    # Add metrics
+    enriched["comment_count"] = calc_comment_count(issue)
+
+    reactions = calc_reaction_metrics(issue)
+    enriched.update(reactions)
+
+    enriched["age_days"] = calc_age_days(issue)
+    enriched["engagements"] = calc_engagements(
+        enriched["comment_count"], enriched["total_emojis"]
+    )
+    enriched["engagements_per_day"] = calc_engagements_per_day(
+        enriched["engagements"], enriched["age_days"]
+    )
+
+    return enriched
 
 
 def add_k4_distances(issues: list[dict[str, Any]]) -> list[dict[str, Any]]:

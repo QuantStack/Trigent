@@ -5,13 +5,23 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import requests
 from fastmcp import FastMCP
 
-from rich_issue_mcp.config import get_config
-from rich_issue_mcp.database import load_issues, upsert_issues
+from rich_issue_mcp.database import (
+    get_collection_name,
+    get_headers,
+    get_qdrant_config,
+    get_qdrant_url,
+    load_issues,
+    upsert_issues,
+)
 from rich_issue_mcp.enrich import get_mistral_embedding
 
 mcp = FastMCP("Rich Issues Server")
+
+# Global config for MCP tools
+_mcp_config: dict[str, Any] | None = None
 
 
 def _get_repo_name(repo: str | None = None) -> str:
@@ -31,13 +41,79 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
     )
 
 
+def _search_similar_in_qdrant(
+    repo: str,
+    query_vector: list[float],
+    threshold: float = 0.8,
+    limit: int = 10,
+    status: str | None = None,
+    config: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Search for similar issues in Qdrant using native vector search."""
+    collection_name = get_collection_name(repo, config)
+    headers = get_headers()
+    timeout = get_qdrant_config()["timeout"]
+
+    # Build filter conditions
+    filter_conditions = {"must": []}
+    if status:
+        filter_conditions["must"].append(
+            {"key": "state", "match": {"value": status.upper()}}
+        )
+
+    # Prepare search payload
+    search_payload = {
+        "vector": query_vector,
+        "limit": limit,
+        "score_threshold": threshold,
+        "with_payload": True,
+    }
+    
+    if filter_conditions["must"]:
+        search_payload["filter"] = filter_conditions
+
+    try:
+        response = requests.post(
+            get_qdrant_url(f"collections/{collection_name}/points/search"),
+            json=search_payload,
+            headers=headers,
+            timeout=timeout,
+        )
+        
+        if response.status_code == 404:
+            return []  # Collection doesn't exist
+            
+        response.raise_for_status()
+        results = response.json()["result"]
+
+        # Transform results to expected format
+        similar = []
+        for hit in results:
+            payload = hit["payload"]
+            similar.append({
+                "number": payload["number"],
+                "title": payload.get("title"),
+                "summary": payload.get("summary"),
+                "url": payload.get("url"),
+                "similarity": hit["score"],
+                "state": payload.get("state"),
+            })
+
+        return similar
+
+    except requests.exceptions.RequestException:
+        # Fallback to in-memory search
+        return None
+
+
 @mcp.tool()
 def get_issue(
     issue_number: int, repo: str | None = None, status: str | None = None
 ) -> dict[str, Any] | None:
     """Get specific issue summary and number. Optionally filter by status (open/closed)."""
     repo = _get_repo_name(repo)
-    issues = load_issues(repo)
+    config = _mcp_config
+    issues = load_issues(repo, config)
     issue = next((i for i in issues if i["number"] == issue_number), None)
     if not issue:
         return None
@@ -69,13 +145,27 @@ def find_similar_issues(
 ) -> list[dict[str, Any]]:
     """Find issues similar to target issue using embeddings. Optionally filter by status (open/closed)."""
     repo = _get_repo_name(repo)
-    issues = load_issues(repo)
+    config = _mcp_config
+    
+    # First, get the target issue to get its embedding
+    issues = load_issues(repo, config)
     target = next((i for i in issues if i["number"] == issue_number), None)
 
     if not target or not target.get("embedding"):
         return []
 
+    # Try Qdrant native search first
+    config = _mcp_config
+    qdrant_results = _search_similar_in_qdrant(
+        repo, target["embedding"], threshold, limit + 1, status, config  # +1 to exclude self
+    )
+    
+    if qdrant_results is not None:
+        # Filter out the target issue itself
+        return [r for r in qdrant_results if r["number"] != issue_number][:limit]
 
+    # Fallback to in-memory search
+    issues = load_issues(repo, config)
     similar = []
     for issue in issues:
         if issue["number"] == issue_number or not issue.get("embedding"):
@@ -114,10 +204,11 @@ def find_similar_issues_by_text(
 ) -> list[dict[str, Any]]:
     """Find issues similar to given text using embeddings. Optionally filter by status (open/closed)."""
     repo = _get_repo_name(repo)
-    issues = load_issues(repo)
 
     # Get Mistral API key from config
-    config = get_config()
+    config = _mcp_config
+    if not config:
+        return []
     api_key = config.get("api", {}).get("mistral_api_key")
     if not api_key:
         return []
@@ -127,6 +218,16 @@ def find_similar_issues_by_text(
     if not text_embedding:
         return []
 
+    # Try Qdrant native search first
+    qdrant_results = _search_similar_in_qdrant(
+        repo, text_embedding, threshold, limit, status, config
+    )
+    
+    if qdrant_results is not None:
+        return qdrant_results
+
+    # Fallback to in-memory search
+    issues = load_issues(repo, config)
     similar = []
     for issue in issues:
         if not issue.get("embedding"):
@@ -161,7 +262,8 @@ def find_cross_referenced_issues(
 ) -> list[dict[str, Any]]:
     """Find cross-referenced issues from the target issue. Optionally filter by status (open/closed)."""
     repo = _get_repo_name(repo)
-    issues = load_issues(repo)
+    config = _mcp_config
+    issues = load_issues(repo, config)
     target = next((i for i in issues if i["number"] == issue_number), None)
 
     if not target:
@@ -197,7 +299,8 @@ def find_cross_referenced_issues(
 def get_available_sort_columns(repo: str | None = None) -> list[str]:
     """Get list of available columns that can be used for sorting issues."""
     repo = _get_repo_name(repo)
-    issues = load_issues(repo)
+    config = _mcp_config
+    issues = load_issues(repo, config)
 
     if not issues:
         return []
@@ -246,7 +349,8 @@ def get_top_issues(
 ) -> list[dict[str, Any]]:
     """Get top n issues sorted by a specific column from the enriched database."""
     repo = _get_repo_name(repo)
-    issues = load_issues(repo)
+    config = _mcp_config
+    issues = load_issues(repo, config)
 
     if not issues:
         return []
@@ -290,7 +394,8 @@ def export_all_open_issues(
 ) -> dict[str, Any]:
     """Export all open issues to a JSON file with name, title, url, and summary."""
     repo = _get_repo_name(repo)
-    issues = load_issues(repo)
+    config = _mcp_config
+    issues = load_issues(repo, config)
 
     if not issues:
         return {"status": "error", "message": "No issues found in database"}
@@ -412,7 +517,8 @@ def add_recommendation(
     repo = _get_repo_name(repo)
 
     try:
-        issues = load_issues(repo)
+        config = _mcp_config
+        issues = load_issues(repo, config)
     except Exception as e:
         return {"status": "error", "message": f"Failed to load database: {e}"}
 
@@ -464,7 +570,7 @@ def add_recommendation(
 
     # Save updated issue using individual upsert to preserve other data
     try:
-        upsert_issues(repo, [issue])
+        upsert_issues(repo, [issue], config)
 
         # Generate ordinal number text
         ordinals = {1: "first", 2: "second", 3: "third", 4: "fourth", 5: "fifth"}
@@ -688,7 +794,8 @@ def get_first_issue_without_recommendation(
 ) -> dict[str, Any] | None:
     """Get the first issue without any recommendations. Defaults to open issues, optionally filter by status (open/closed)."""
     repo = _get_repo_name(repo)
-    issues = load_issues(repo)
+    config = _mcp_config
+    issues = load_issues(repo, config)
 
     if not issues:
         return None
@@ -739,7 +846,8 @@ def get_issue_by_difficulty(
         }
 
     repo = _get_repo_name(repo)
-    issues = load_issues(repo)
+    config = _mcp_config
+    issues = load_issues(repo, config)
 
     if not issues:
         return None
@@ -820,10 +928,14 @@ def get_issue_by_difficulty(
 
 
 def run_mcp_server(
-    host: str = "localhost", port: int = 8000, repo: str | None = None
+    host: str = "localhost", port: int = 8000, repo: str | None = None, config: dict[str, Any] | None = None
 ) -> None:
     """Run the MCP server with specified configuration."""
     repo = _get_repo_name(repo)
+    
+    # Store config globally for MCP tools to use
+    global _mcp_config
+    _mcp_config = config
 
     print("🚀 Starting MCP server")
     print(f"📂 Using repository: {repo}")

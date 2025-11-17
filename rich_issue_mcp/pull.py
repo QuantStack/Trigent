@@ -10,9 +10,11 @@ import requests
 import toml
 
 from rich_issue_mcp.database import load_issues
+from rich_issue_mcp.enrich import enrich_issue
+from rich_issue_mcp.config import get_config
 
 
-def get_last_updated_date(repo: str) -> datetime | None:
+def get_last_updated_date(repo: str, config: dict[str, Any] | None = None) -> datetime | None:
     """Get the most recent updated date from existing issues in database."""
     from rich_issue_mcp.database import get_latest_updated_date_from_view, load_issues
     
@@ -45,17 +47,17 @@ def get_last_updated_date(repo: str) -> datetime | None:
         return None
 
 
-def get_existing_issue_numbers(repo: str) -> set[int]:
+def get_existing_issue_numbers(repo: str, config: dict[str, Any] | None = None) -> set[int]:
     """Get set of existing issue numbers in database to avoid re-pulling."""
     try:
-        existing_issues = load_issues(repo)
+        existing_issues = load_issues(repo, config)
         return {issue["number"] for issue in existing_issues if "number" in issue}
     except Exception:
         return set()
 
 
 def get_database_coverage(
-    repo: str, mode: str = "update"
+    repo: str, mode: str = "update", config: dict[str, Any] | None = None
 ) -> tuple[datetime, datetime] | None:
     """Get the date range covered by existing database issues.
 
@@ -64,7 +66,7 @@ def get_database_coverage(
         mode: Either 'create' or 'update' - determines which timestamp field to use
     """
     try:
-        existing_issues = load_issues(repo)
+        existing_issues = load_issues(repo, config)
         if not existing_issues:
             return None
 
@@ -671,8 +673,8 @@ def fetch_all_timeline_cross_references(
     return all_cross_references
 
 
-def process_and_save_issue(repo: str, issue: dict[str, Any]) -> dict[str, Any] | None:
-    """Process a single issue by fetching comments and cross-references, then save to database.
+def process_and_save_issue(repo: str, issue: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    """Process a single issue by fetching comments and cross-references, enriching, then save to database.
 
     Returns:
         Processed issue if successful, None if comments or cross-references could not be fetched
@@ -718,20 +720,42 @@ def process_and_save_issue(repo: str, issue: dict[str, Any]) -> dict[str, Any] |
         "cross_references": cross_references,
     }
 
-    # Save immediately to database (upsert_issues will handle the pulled_date and messaging)
-    upsert_issues(repo, [processed_issue])
+    # Enrich with embeddings and summaries inline
+    try:
+        if config is None:
+            raise ValueError("Config must be provided to process_and_save_issue")
+            
+        api_key = config.get("api", {}).get("mistral_api_key")
+        model = "mistral-embed"
+        
+        if api_key:
+            print(f"  🧠 Enriching issue #{issue_number} with embeddings...")
+            enriched_issue = enrich_issue(processed_issue, api_key, model)
+        else:
+            print(f"  ⚠️  No Mistral API key found, skipping enrichment for issue #{issue_number}")
+            enriched_issue = processed_issue
+            enriched_issue["embedding"] = None
+            enriched_issue["summary"] = None
+    except Exception as e:
+        print(f"  ❌ Error enriching issue #{issue_number}: {e}")
+        enriched_issue = processed_issue
+        enriched_issue["embedding"] = None
+        enriched_issue["summary"] = None
 
-    return processed_issue
+    # Save immediately to database (upsert_issues will handle the pulled_date and messaging)
+    upsert_issues(repo, [enriched_issue], config)
+
+    return enriched_issue
 
 
 def process_page_issues(
-    repo: str, page_issues: list[dict[str, Any]]
+    repo: str, page_issues: list[dict[str, Any]], config: dict[str, Any] | None = None
 ) -> list[dict[str, Any]]:
     """Process a page of issues by fetching comments and cross-references with pagination."""
     processed_issues = []
 
     for issue in page_issues:
-        processed_issue = process_and_save_issue(repo, issue)
+        processed_issue = process_and_save_issue(repo, issue, config)
         if processed_issue is not None:
             processed_issues.append(processed_issue)
 
@@ -756,7 +780,7 @@ def fetch_specific_issue(repo: str, issue_number: int) -> dict[str, Any] | None:
     return response.json()
 
 
-def fetch_specific_issues(repo: str, issue_numbers: list[int]) -> list[dict[str, Any]]:
+def fetch_specific_issues(repo: str, issue_numbers: list[int], config: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """Fetch specific issues by number and process them."""
     print(
         f"🎯 Fetching {len(issue_numbers)} specific issues: {', '.join(map(str, issue_numbers))}"
@@ -773,7 +797,7 @@ def fetch_specific_issues(repo: str, issue_numbers: list[int]) -> list[dict[str,
             continue
 
         # Process and save the issue
-        processed_issue = process_and_save_issue(repo, issue)
+        processed_issue = process_and_save_issue(repo, issue, config)
         if processed_issue is not None:
             processed_issues.append(processed_issue)
 
@@ -785,6 +809,7 @@ def fetch_items_with_rest_since(
     item_type: str,
     include_closed: bool,
     since: datetime,
+    config: dict[str, Any] | None = None,
 ) -> tuple[int, int, int]:
     """Fetch items using REST API with since parameter for efficient updates.
     
@@ -919,7 +944,7 @@ def fetch_items_with_rest_since(
 
         # Process the items (fetch comments and cross-references)
         print(f"🔧 Processing page {page} ({len(page_items)} items: {issues_count} issues, {prs_count} PRs)...")
-        processed_items = process_page_issues(repo, page_items)
+        processed_items = process_page_issues(repo, page_items, config)
 
         # Count stats
         page_comments = sum(len(item["comments"]) for item in processed_items)
@@ -949,6 +974,7 @@ def fetch_items_with_pagination(
     existing_numbers: set[int],
     coverage: tuple[datetime, datetime] | None,
     mode: str,
+    config: dict[str, Any] | None = None,
 ) -> tuple[int, int, int]:
     """Fetch all items (issues or PRs) with pagination.
 
@@ -1013,7 +1039,7 @@ def fetch_items_with_pagination(
             print(
                 f"🔧 Processing {item_type} page {page_num} ({len(page_items)} items)..."
             )
-            processed_items = process_page_issues(repo, page_items)
+            processed_items = process_page_issues(repo, page_items, config)
 
             # Count stats
             page_comments = sum(len(item["comments"]) for item in processed_items)
@@ -1055,6 +1081,7 @@ def fetch_issues(
     mode: str = "update",
     issue_numbers: list[int] | None = None,
     item_types: str = "both",
+    config: dict[str, Any] | None = None,
     **kwargs: Any,  # Backward compatibility for unused params
 ) -> list[dict[str, Any]]:
     """Fetch issues from GitHub using Issues API with intelligent page-based processing.
@@ -1075,11 +1102,11 @@ def fetch_issues(
     # Handle specific issue numbers if provided
     if issue_numbers:
         print(f"🚀 Starting specific issue fetch for {repo}")
-        specific_issues = fetch_specific_issues(repo, issue_numbers)
+        specific_issues = fetch_specific_issues(repo, issue_numbers, config)
 
         # Load and return all issues in database
         try:
-            final_issues = load_issues(repo)
+            final_issues = load_issues(repo, config)
             print("\n📋 Specific issue fetch complete:")
             print(f"  🎯 Fetched {len(specific_issues)} specific issues")
             print(f"  📁 Total issues in database: {len(final_issues)}")
@@ -1101,10 +1128,10 @@ def fetch_issues(
             ) from e
 
     # Get existing issue numbers for create mode filtering
-    existing_numbers = set() if refetch else get_existing_issue_numbers(repo)
+    existing_numbers = set() if refetch else get_existing_issue_numbers(repo, config)
 
     # Analyze existing database coverage
-    coverage = None if refetch else get_database_coverage(repo, mode)
+    coverage = None if refetch else get_database_coverage(repo, mode, config)
 
     if mode == "create":
         # CREATE MODE: Use start_date as since, avoid re-pulling existing issues
@@ -1132,7 +1159,7 @@ def fetch_issues(
             )
         else:
             # Use last updated date from database
-            last_updated = get_last_updated_date(repo)
+            last_updated = get_last_updated_date(repo, config)
             if last_updated:
                 print(
                     f"📅 UPDATE mode: Using last updated date as since: {last_updated.date()}"
@@ -1161,7 +1188,7 @@ def fetch_issues(
         if refetch and start_datetime:
             since_date = start_datetime
         else:
-            since_date = get_last_updated_date(repo)
+            since_date = get_last_updated_date(repo, config)
             # Add 1-week overlap before last updatedAt to ensure coverage
             if since_date:
                 since_date = since_date - timedelta(weeks=1)
@@ -1173,7 +1200,7 @@ def fetch_issues(
             # GitHub Issues API returns both issues and PRs, so fetch once
             print("\n🔍 Fetching issues and pull requests together (Issues API returns both)...")
             items_processed = fetch_items_with_rest_since(
-                repo, "issues", include_closed, since_date
+                repo, "issues", include_closed, since_date, config
             )
             total_processed += items_processed[0]
             total_comments += items_processed[1]
@@ -1184,7 +1211,7 @@ def fetch_issues(
             if item_types in ("issues", "both"):
                 print("\n🔍 Fetching issues...")
                 issues_processed = fetch_items_with_pagination(
-                    repo, "issues", include_closed, set(), coverage, mode
+                    repo, "issues", include_closed, set(), coverage, mode, config
                 )
                 total_processed += issues_processed[0]
                 total_comments += issues_processed[1]
@@ -1195,7 +1222,7 @@ def fetch_issues(
             if item_types in ("prs", "both"):
                 print("\n🔍 Fetching pull requests...")
                 prs_processed = fetch_items_with_pagination(
-                    repo, "pull_requests", include_closed, set(), coverage, mode
+                    repo, "pull_requests", include_closed, set(), coverage, mode, config
                 )
                 total_processed += prs_processed[0]
                 total_comments += prs_processed[1]
@@ -1213,7 +1240,7 @@ def fetch_issues(
         if item_types in ("issues", "both"):
             print("\n🔍 Fetching issues...")
             issues_processed = fetch_items_with_pagination(
-                repo, "issues", include_closed, filter_existing, coverage, mode
+                repo, "issues", include_closed, filter_existing, coverage, mode, config
             )
             total_processed += issues_processed[0]
             total_comments += issues_processed[1]
@@ -1225,7 +1252,7 @@ def fetch_issues(
         if item_types in ("prs", "both"):
             print("\n🔍 Fetching pull requests...")
             prs_processed = fetch_items_with_pagination(
-                repo, "pull_requests", include_closed, filter_existing, coverage, mode
+                repo, "pull_requests", include_closed, filter_existing, coverage, mode, config
             )
             total_processed += prs_processed[0]
             total_comments += prs_processed[1]
@@ -1235,7 +1262,7 @@ def fetch_issues(
 
     # Load final results
     try:
-        final_issues = load_issues(repo)
+        final_issues = load_issues(repo, config)
         print("\n📋 Final results:")
         print(f"  📁 Total items in database: {len(final_issues)}")
         print(f"  ✅ Processed this run: {total_processed}")

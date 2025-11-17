@@ -1,165 +1,162 @@
 #!/usr/bin/env python3
-"""Database operations using CouchDB for the Rich Issue MCP system."""
+"""Database operations using Qdrant vector database for the Rich Issue MCP system."""
 
 import json
+import math
+import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 from urllib.parse import quote
 
+import numpy as np
 import requests
-from requests.auth import HTTPBasicAuth
+
+from rich_issue_mcp.config import get_config
+
+# Embedding dimension for Mistral embeddings
+EMBEDDING_DIM = 1024
 
 
-class CouchDBError(Exception):
-    """Base exception for CouchDB operations."""
-
-    pass
-
-
-class CouchDBConnectionError(CouchDBError):
-    """Exception for CouchDB connection issues."""
+class QdrantError(Exception):
+    """Base exception for Qdrant operations."""
 
     pass
 
 
-class CouchDBDocumentConflict(CouchDBError):
-    """Exception for CouchDB document conflicts (409)."""
+class QdrantConnectionError(QdrantError):
+    """Exception for Qdrant connection issues."""
 
     pass
 
 
-from rich_issue_mcp.config import get_couchdb_config
+class QdrantDocumentConflict(QdrantError):
+    """Exception for Qdrant document conflicts."""
+
+    pass
 
 
-def get_database_name(repo: str) -> str:
-    """Get the CouchDB database name for a repository."""
-    # CouchDB database names must be lowercase and contain only a-z, 0-9, _, $, (, ), +, -, /
-    return f"issues-{repo.replace('/', '-').lower()}"
+# Legacy aliases for backward compatibility
+CouchDBError = QdrantError
+CouchDBConnectionError = QdrantConnectionError
+CouchDBDocumentConflict = QdrantDocumentConflict
 
 
-def get_couchdb_url(repo: str) -> str:
-    """Get the CouchDB database URL for a repository."""
-    config = get_couchdb_config()
-    db_name = get_database_name(repo)
-    return f"{config['server_url']}/{db_name}"
+def get_qdrant_config() -> dict[str, Any]:
+    """
+    Get Qdrant configuration from config.toml.
 
-
-def get_auth() -> HTTPBasicAuth | None:
-    """Get CouchDB authentication if configured."""
-    config = get_couchdb_config()
-    if config.get("username") and config.get("password"):
-        return HTTPBasicAuth(config["username"], config["password"])
-    return None
-
-
-def ensure_database_exists(repo: str) -> None:
-    """Create CouchDB database if it doesn't exist."""
-    url = get_couchdb_url(repo)
-    auth = get_auth()
-
+    Returns:
+        Dictionary containing Qdrant configuration with defaults:
+        - host: Qdrant server host (default: localhost)
+        - port: Qdrant server port (default: 6333)
+        - api_key: Optional API key for authentication
+        - timeout: Request timeout in seconds (default: 30)
+    """
     try:
-        response = requests.put(url, auth=auth, timeout=30)
-        if response.status_code == 201:
-            # Database created successfully
-            pass
-        elif response.status_code == 412:
-            # Database already exists
-            pass
-        else:
-            response.raise_for_status()
-    except requests.exceptions.RequestException as e:
-        raise CouchDBConnectionError(f"Failed to create/access database {repo}: {e}")
+        config = get_config()
+        qdrant_config = config.get("qdrant", {})
+
+        # Apply defaults
+        defaults = {
+            "host": "localhost",
+            "port": 6333,
+            "api_key": None,
+            "timeout": 30,
+        }
+
+        # Merge with configured values
+        result = defaults.copy()
+        result.update(qdrant_config)
+
+        return result
+
+    except (FileNotFoundError, ValueError):
+        # Return defaults if config not available
+        return {
+            "host": "localhost",
+            "port": 6333,
+            "api_key": None,
+            "timeout": 30,
+        }
 
 
-def load_design_documents(repo: str) -> None:
-    """Load and update design documents from view files."""
-    views_dir = Path(__file__).parent / "views"
-    design_doc_path = views_dir / "design_doc.json"
+def get_collection_name(repo: str, config: dict[str, Any] | None = None) -> str:
+    """Get the Qdrant collection name for a repository."""
+    if config is None:
+        from rich_issue_mcp.config import get_config
+        config = get_config()
+    
+    # Get prefix from config, default to empty string
+    prefix = config.get("qdrant", {}).get("collection_prefix", "")
+    
+    # Clean repo name for Qdrant collection names (letters, numbers, underscores)
+    clean_repo = repo.replace('/', '_').replace('-', '_').lower()
+    
+    # Return with or without prefix
+    if prefix:
+        return f"{prefix}_{clean_repo}"
+    else:
+        return clean_repo
 
-    if not design_doc_path.exists():
-        print("Warning: No design document template found")
-        return
 
-    # Load the design document template
-    with open(design_doc_path) as f:
-        design_doc = json.load(f)
+def get_qdrant_url(endpoint: str = "") -> str:
+    """Get the Qdrant API URL."""
+    config = get_qdrant_config()
+    base_url = f"http://{config['host']}:{config['port']}"
+    return f"{base_url}/{endpoint}" if endpoint else base_url
 
-    # Replace placeholders with actual view functions
-    for view_name, view_def in design_doc["views"].items():
-        map_function_file = views_dir / f"{view_name}.js"
-        if map_function_file.exists():
-            with open(map_function_file) as f:
-                map_function = f.read().strip()
-            view_def["map"] = map_function
-        else:
-            print(f"Warning: View file {map_function_file} not found")
 
-    # Update the design document in CouchDB
-    auth = get_auth()
-    base_url = get_couchdb_url(repo)
-    design_url = f"{base_url}/_design/queries"
+def get_headers() -> dict[str, str]:
+    """Get headers for Qdrant API requests."""
+    headers = {"Content-Type": "application/json"}
+    config = get_qdrant_config()
+    if config.get("api_key"):
+        headers["api-key"] = config["api_key"]
+    return headers
 
+
+def ensure_collection_exists(repo: str, config: dict[str, Any] | None = None) -> None:
+    """Create Qdrant collection if it doesn't exist."""
+    collection_name = get_collection_name(repo, config)
+    headers = get_headers()
+    timeout = get_qdrant_config()["timeout"]
+
+    # Check if collection exists
     try:
-        # Check if design doc exists to get current revision
-        response = requests.get(design_url, auth=auth, timeout=30)
+        response = requests.get(
+            get_qdrant_url(f"collections/{collection_name}"),
+            headers=headers,
+            timeout=timeout,
+        )
         if response.status_code == 200:
-            existing_doc = response.json()
-            design_doc["_rev"] = existing_doc["_rev"]
+            # Collection exists
+            return
+    except requests.exceptions.RequestException:
+        pass
 
-        # Update the design document
-        response = requests.put(design_url, json=design_doc, auth=auth, timeout=30)
-        if response.status_code in [200, 201]:
-            print(f"✓ Design document updated with {len(design_doc['views'])} views")
-        else:
-            print(f"Warning: Failed to update design document: {response.status_code}")
+    # Create collection
+    create_payload = {
+        "vectors": {
+            "size": EMBEDDING_DIM,
+            "distance": "Cosine"  # Using cosine similarity for normalized embeddings
+        }
+    }
+
+    try:
+        response = requests.put(
+            get_qdrant_url(f"collections/{collection_name}"),
+            json=create_payload,
+            headers=headers,
+            timeout=timeout,
+        )
+        response.raise_for_status()
     except requests.exceptions.RequestException as e:
-        print(f"Warning: Failed to update design document: {e}")
-
-
-def ensure_indexes(repo: str) -> None:
-    """Create necessary indexes for efficient querying."""
-    url = f"{get_couchdb_url(repo)}/_index"
-    auth = get_auth()
-
-    # Index for recommendations count
-    recommendations_index = {
-        "index": {"fields": ["recommendations"]},
-        "name": "recommendations-index",
-        "type": "json",
-    }
-
-    # Index for issue number
-    number_index = {
-        "index": {"fields": ["number"]},
-        "name": "number-index",
-        "type": "json",
-    }
-
-    # Index for state and updated_at
-    state_updated_index = {
-        "index": {"fields": ["state", "updated_at"]},
-        "name": "state-updated-index",
-        "type": "json",
-    }
-
-    indexes = [recommendations_index, number_index, state_updated_index]
-
-    for index_def in indexes:
-        try:
-            response = requests.post(url, json=index_def, auth=auth, timeout=30)
-            if response.status_code not in [200, 409]:  # 409 = index already exists
-                response.raise_for_status()
-        except requests.exceptions.RequestException as e:
-            # Log warning but don't fail - indexes are optimization
-            print(f"Warning: Failed to create index {index_def['name']}: {e}")
-
-    # Design documents are only updated via CLI command, not during normal operations
+        raise QdrantConnectionError(f"Failed to create collection {collection_name}: {e}")
 
 
 def convert_numpy_types(obj: Any) -> Any:
     """Recursively convert NumPy types to Python native types for JSON serialization."""
     import numpy as np
-    import math
 
     if isinstance(obj, np.integer):
         return int(obj)
@@ -184,60 +181,356 @@ def convert_numpy_types(obj: Any) -> Any:
         return obj
 
 
-def documents_are_equal(doc1: dict[str, Any], doc2: dict[str, Any]) -> bool:
-    """Compare two documents for equality, ignoring CouchDB internal fields."""
-    # Create copies without internal fields and pulled_date (which always changes)
-    clean_doc1 = {
-        k: v for k, v in doc1.items() if not k.startswith("_") and k != "pulled_date"
-    }
-    clean_doc2 = {
-        k: v for k, v in doc2.items() if not k.startswith("_") and k != "pulled_date"
-    }
+def issue_to_point(issue: dict[str, Any], point_id: int) -> dict[str, Any]:
+    """Convert an issue to a Qdrant point."""
+    # Extract embedding
+    embedding = issue.get("embedding")
+    if not embedding or not isinstance(embedding, list):
+        raise ValueError(f"Issue {issue.get('number')} has no valid embedding")
 
-    return clean_doc1 == clean_doc2
-
-
-def delete_issue(repo: str, issue_number: int) -> bool:
-    """Delete a specific issue from the database by issue number."""
-    auth = get_auth()
-    base_url = get_couchdb_url(repo)
-    doc_id = f"{repo}-{issue_number}"
-    encoded_doc_id = quote(doc_id, safe="")
-
-    try:
-        # Get current document to get revision
-        response = requests.get(f"{base_url}/{encoded_doc_id}", auth=auth, timeout=30)
-        if response.status_code == 404:
-            return False  # Document doesn't exist
-        elif response.status_code != 200:
-            raise CouchDBConnectionError(
-                f"Failed to fetch document for deletion: {response.status_code}"
-            )
-
-        existing_doc = response.json()
-        if "_rev" not in existing_doc:
-            raise CouchDBConnectionError("Document missing _rev field for deletion")
-
-        # Delete the document
-        delete_response = requests.delete(
-            f"{base_url}/{encoded_doc_id}?rev={existing_doc['_rev']}",
-            auth=auth,
-            timeout=30,
+    if len(embedding) != EMBEDDING_DIM:
+        raise ValueError(
+            f"Issue {issue.get('number')} has embedding of dimension {len(embedding)}, "
+            f"expected {EMBEDDING_DIM}"
         )
 
-        if delete_response.status_code == 200:
-            return True
-        else:
-            raise CouchDBConnectionError(
-                f"Failed to delete document: {delete_response.status_code}"
-            )
+    # Prepare payload (all fields except embedding)
+    payload = convert_numpy_types(issue.copy())
+    payload.pop("embedding", None)  # Remove embedding from payload
+    
+    # Add special fields for filtering
+    if "labels" in payload and isinstance(payload["labels"], list):
+        # Store label names for filtering
+        payload["label_names"] = [
+            label["name"] for label in payload["labels"] 
+            if isinstance(label, dict) and "name" in label
+        ]
+    
+    if "author" in payload and isinstance(payload["author"], dict):
+        payload["author_login"] = payload["author"].get("login")
+    
+    if "assignees" in payload and isinstance(payload["assignees"], list):
+        payload["assignee_logins"] = [
+            assignee.get("login") for assignee in payload["assignees"] 
+            if isinstance(assignee, dict)
+        ]
+
+    return {
+        "id": point_id,
+        "vector": embedding,
+        "payload": payload,
+    }
+
+
+def save_issues(repo: str, issues: list[dict[str, Any]], config: dict[str, Any] | None = None) -> None:
+    """Save issues to Qdrant collection, replacing all existing data."""
+    # Validate repo parameter
+    if (
+        ".db" in repo
+        or ".json" in repo
+        or ".gz" in repo
+        or "issues-" in repo
+        or "enriched-" in repo
+    ):
+        raise ValueError(
+            f"Invalid repo name '{repo}': should be 'owner/repo', not a file path"
+        )
+
+    collection_name = get_collection_name(repo, config)
+    headers = get_headers()
+    timeout = get_qdrant_config()["timeout"]
+
+    # Delete and recreate collection
+    try:
+        # Delete collection if it exists
+        response = requests.delete(
+            get_qdrant_url(f"collections/{collection_name}"),
+            headers=headers,
+            timeout=timeout,
+        )
+        # Ignore 404 (collection doesn't exist)
+        if response.status_code not in [200, 404]:
+            response.raise_for_status()
+
+        # Wait a bit for deletion to complete
+        time.sleep(0.5)
 
     except requests.exceptions.RequestException as e:
-        raise CouchDBConnectionError(f"Network error during deletion: {e}")
+        raise QdrantConnectionError(f"Failed to delete collection {collection_name}: {e}")
+
+    # Create collection
+    ensure_collection_exists(repo)
+
+    if not issues:
+        return  # Nothing to save
+
+    # Convert issues to points
+    points = []
+    for idx, issue in enumerate(issues):
+        try:
+            point = issue_to_point(issue, idx)
+            points.append(point)
+        except ValueError as e:
+            print(f"Warning: Skipping issue: {e}")
+            continue
+
+    if not points:
+        return
+
+    # Upload points in batches
+    batch_size = 100
+    for i in range(0, len(points), batch_size):
+        batch = points[i : i + batch_size]
+        upload_payload = {"points": batch}
+
+        try:
+            response = requests.put(
+                get_qdrant_url(f"collections/{collection_name}/points"),
+                json=upload_payload,
+                headers=headers,
+                timeout=timeout * 2,  # Double timeout for uploads
+            )
+            response.raise_for_status()
+        except requests.exceptions.RequestException as e:
+            raise QdrantConnectionError(
+                f"Failed to upload batch {i // batch_size + 1}: {e}"
+            )
 
 
-def delete_issues(repo: str, issue_numbers: list[int]) -> tuple[int, int]:
-    """Delete multiple issues from the database.
+def load_issues(repo: str, config: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """Load all issues from Qdrant collection."""
+    # Validate repo parameter
+    if (
+        ".db" in repo
+        or ".json" in repo
+        or ".gz" in repo
+        or "issues-" in repo
+        or "enriched-" in repo
+    ):
+        raise ValueError(
+            f"Invalid repo name '{repo}': should be 'owner/repo', not a file path"
+        )
+
+    collection_name = get_collection_name(repo, config)
+    headers = get_headers()
+    timeout = get_qdrant_config()["timeout"]
+
+    try:
+        # First, get collection info to know total points
+        info_response = requests.get(
+            get_qdrant_url(f"collections/{collection_name}"),
+            headers=headers,
+            timeout=timeout,
+        )
+        if info_response.status_code == 404:
+            # Collection doesn't exist
+            return []
+        info_response.raise_for_status()
+        
+        collection_info = info_response.json()["result"]
+        total_points = collection_info.get("points_count", 0)
+        
+        if total_points == 0:
+            return []
+
+        # Scroll through all points
+        issues = []
+        offset = None
+        limit = 100
+        
+        while True:
+            scroll_payload = {
+                "limit": limit,
+                "with_payload": True,
+                "with_vector": True,
+            }
+            if offset is not None:
+                scroll_payload["offset"] = offset
+
+            response = requests.post(
+                get_qdrant_url(f"collections/{collection_name}/points/scroll"),
+                json=scroll_payload,
+                headers=headers,
+                timeout=timeout,
+            )
+            response.raise_for_status()
+            
+            result = response.json()["result"]
+            points = result.get("points", [])
+            
+            if not points:
+                break
+                
+            for point in points:
+                # Reconstruct issue from point
+                issue = point["payload"].copy()
+                issue["embedding"] = point["vector"]
+                issues.append(issue)
+            
+            # Check if there's a next page
+            next_offset = result.get("next_page_offset")
+            if next_offset is None:
+                break
+            offset = next_offset
+
+        return issues
+
+    except requests.exceptions.RequestException as e:
+        if hasattr(e, "response") and e.response and e.response.status_code == 404:
+            # Collection doesn't exist yet
+            return []
+        raise QdrantConnectionError(f"Failed to load issues from {repo}: {e}")
+
+
+def upsert_issues(repo: str, issues: list[dict[str, Any]], config: dict[str, Any] | None = None) -> None:
+    """Upsert issues to Qdrant collection (update existing, insert new)."""
+    # Validate repo parameter
+    if (
+        ".db" in repo
+        or ".json" in repo
+        or ".gz" in repo
+        or "issues-" in repo
+        or "enriched-" in repo
+    ):
+        raise ValueError(
+            f"Invalid repo name '{repo}': should be 'owner/repo', not a file path"
+        )
+
+    if not issues:
+        return
+
+    collection_name = get_collection_name(repo, config)
+    headers = get_headers()
+    timeout = get_qdrant_config()["timeout"]
+
+    # Ensure collection exists
+    ensure_collection_exists(repo, config)
+
+    # Get existing issues to determine point IDs
+    existing_issues = load_issues(repo, config)
+    issue_number_to_id = {}
+    max_id = -1
+    
+    for idx, issue in enumerate(existing_issues):
+        issue_num = issue.get("number")
+        if issue_num:
+            issue_number_to_id[issue_num] = idx
+            max_id = max(max_id, idx)
+
+    # Process each issue
+    points_to_upsert = []
+    
+    for issue in issues:
+        issue_num = issue.get("number")
+        if not issue_num:
+            print(f"Warning: Issue without number, skipping")
+            continue
+
+        # Determine point ID
+        if issue_num in issue_number_to_id:
+            point_id = issue_number_to_id[issue_num]
+            action = "update"
+        else:
+            max_id += 1
+            point_id = max_id
+            action = "create"
+
+        try:
+            point = issue_to_point(issue, point_id)
+            points_to_upsert.append(point)
+            
+            # Log action
+            comments_count = len(issue.get("comments", []))
+            cross_refs_count = len(issue.get("cross_references", []))
+            updated_at = issue.get("updatedAt", "unknown")
+            print(
+                f"  ✓ Issue #{issue_num} (updated: {updated_at}): "
+                f"{comments_count} comments, {cross_refs_count} cross-refs - {action} in database"
+            )
+        except ValueError as e:
+            print(f"Warning: Skipping issue #{issue_num}: {e}")
+            continue
+
+    if not points_to_upsert:
+        return
+
+    # Upsert points in batches
+    batch_size = 100
+    for i in range(0, len(points_to_upsert), batch_size):
+        batch = points_to_upsert[i : i + batch_size]
+        upsert_payload = {"points": batch}
+
+        try:
+            response = requests.put(
+                get_qdrant_url(f"collections/{collection_name}/points"),
+                json=upsert_payload,
+                headers=headers,
+                timeout=timeout * 2,  # Double timeout for uploads
+            )
+            response.raise_for_status()
+        except requests.exceptions.RequestException as e:
+            raise QdrantConnectionError(
+                f"Failed to upsert batch {i // batch_size + 1}: {e}"
+            )
+
+
+def delete_issue(repo: str, issue_number: int, config: dict[str, Any] | None = None) -> bool:
+    """Delete a specific issue from the collection by issue number."""
+    collection_name = get_collection_name(repo, config)
+    headers = get_headers()
+    timeout = get_qdrant_config()["timeout"]
+
+    try:
+        # Find the point with this issue number
+        search_payload = {
+            "filter": {
+                "must": [
+                    {
+                        "key": "number",
+                        "match": {"value": issue_number}
+                    }
+                ]
+            },
+            "limit": 1,
+            "with_payload": False,
+        }
+
+        response = requests.post(
+            get_qdrant_url(f"collections/{collection_name}/points/scroll"),
+            json=search_payload,
+            headers=headers,
+            timeout=timeout,
+        )
+        
+        if response.status_code == 404:
+            return False  # Collection doesn't exist
+        
+        response.raise_for_status()
+        points = response.json()["result"]["points"]
+        
+        if not points:
+            return False  # Issue not found
+        
+        point_id = points[0]["id"]
+
+        # Delete the point
+        delete_payload = {"points": [point_id]}
+        delete_response = requests.post(
+            get_qdrant_url(f"collections/{collection_name}/points/delete"),
+            json=delete_payload,
+            headers=headers,
+            timeout=timeout,
+        )
+        delete_response.raise_for_status()
+        
+        return True
+
+    except requests.exceptions.RequestException as e:
+        raise QdrantConnectionError(f"Failed to delete issue {issue_number}: {e}")
+
+
+def delete_issues(repo: str, issue_numbers: list[int], config: dict[str, Any] | None = None) -> tuple[int, int]:
+    """Delete multiple issues from the collection.
 
     Returns:
         Tuple of (successful_deletions, failed_deletions)
@@ -260,395 +553,97 @@ def delete_issues(repo: str, issue_numbers: list[int]) -> tuple[int, int]:
     return successful, failed
 
 
-def get_latest_updated_date_from_view(repo: str) -> str | None:
-    """Get the most recent updatedAt using CouchDB view (much faster than loading all docs)."""
-    auth = get_auth()
-    base_url = get_couchdb_url(repo)
-
-    # Query the by_updatedAt view with descending=true&limit=1 to get the latest
-    view_url = f"{base_url}/_design/queries/_view/by_updatedAt"
-    params = {"descending": "true", "limit": 1, "include_docs": "true"}
+def get_latest_updated_date_from_view(repo: str, config: dict[str, Any] | None = None) -> str | None:
+    """Get the most recent updatedAt timestamp from the collection."""
+    collection_name = get_collection_name(repo, config)
+    headers = get_headers()
+    timeout = get_qdrant_config()["timeout"]
 
     try:
-        response = requests.get(view_url, params=params, auth=auth, timeout=30)
-        if response.status_code == 200:
-            data = response.json()
-            if data.get("rows"):
-                # Get the first row (which is the latest due to descending=true)
-                latest_row = data["rows"][0]
-                if latest_row.get("doc") and latest_row["doc"].get("updatedAt"):
-                    return latest_row["doc"]["updatedAt"]
-        elif response.status_code == 404:
-            # View doesn't exist yet, fallback to old method
+        # Get all issues and find the latest updatedAt
+        issues = load_issues(repo, config)
+        if not issues:
             return None
-        else:
-            print(f"Warning: Failed to query view: {response.status_code}")
-            return None
-    except requests.exceptions.RequestException as e:
-        print(f"Warning: Failed to query view: {e}")
+        
+        latest_date = None
+        for issue in issues:
+            updated_at = issue.get("updatedAt")
+            if updated_at and (latest_date is None or updated_at > latest_date):
+                latest_date = updated_at
+        
+        return latest_date
+
+    except QdrantConnectionError:
         return None
 
 
-def save_issues(repo: str, issues: list[dict[str, Any]]) -> None:
-    """Save issues to CouchDB database, replacing all existing data."""
-    # Validate repo parameter to prevent incorrect database naming
-    if (
-        ".db" in repo
-        or ".json" in repo
-        or ".gz" in repo
-        or "issues-" in repo
-        or "enriched-" in repo
-    ):
-        raise ValueError(
-            f"Invalid repo name '{repo}': should be 'owner/repo', not a file path"
-        )
-
-    # Convert NumPy types to Python native types for JSON serialization
-    serializable_issues = [convert_numpy_types(issue) for issue in issues]
-
-    # Ensure database exists
-    ensure_database_exists(repo)
-
-    auth = get_auth()
-    base_url = get_couchdb_url(repo)
-
-    # Delete the database and recreate it to clear all data
-    try:
-        # Delete database
-        response = requests.delete(base_url, auth=auth, timeout=30)
-        if response.status_code not in [200, 404]:  # 404 = database doesn't exist
-            response.raise_for_status()
-
-        # Recreate database
-        ensure_database_exists(repo)
-        ensure_indexes(repo)
-
-    except requests.exceptions.RequestException as e:
-        raise CouchDBConnectionError(f"Failed to clear database {repo}: {e}")
-
-    if not serializable_issues:
-        return  # Nothing to save
-
-    # Prepare documents with CouchDB _id
-    docs = []
-    for issue in serializable_issues:
-        doc = {"_id": f"{repo}-{issue['number']}", **issue}
-        docs.append(doc)
-
-    # Use _bulk_docs to save all issues
-    url = f"{base_url}/_bulk_docs"
-
-    try:
-        response = requests.post(url, json={"docs": docs}, auth=auth, timeout=60)
-        response.raise_for_status()
-
-        # Check for any document-level errors
-        result = response.json()
-        if isinstance(result, list):
-            errors = [doc for doc in result if doc.get("error")]
-            if errors:
-                print(f"Warning: {len(errors)} documents had errors during save:")
-                for error in errors[:3]:  # Show first 3 errors
-                    print(
-                        f"  - {error.get('error', 'unknown')}: {error.get('reason', 'no reason')}"
-                    )
-
-    except requests.exceptions.RequestException as e:
-        raise CouchDBConnectionError(f"Failed to save issues to {repo}: {e}")
-
-
-def clear_all_recommendations(repo: str) -> int:
+def clear_all_recommendations(repo: str, config: dict[str, Any] | None = None) -> int:
     """Clear all recommendations from all issues in the repository.
 
     Returns the number of issues that had recommendations cleared.
     """
     print(f"🧹 Clearing all recommendations from {repo}...")
 
-    # Load all issues with CouchDB metadata intact
-    url = f"{get_couchdb_url(repo)}/_all_docs?include_docs=true"
-    auth = get_auth()
-    
+    # Load all issues
     try:
-        response = requests.get(url, auth=auth, timeout=60)
-        response.raise_for_status()
-        data = response.json()
-    except requests.exceptions.RequestException as e:
-        if hasattr(e, "response") and e.response.status_code == 404:
-            print("📁 No database found")
+        issues = load_issues(repo)
+    except QdrantConnectionError as e:
+        if "404" in str(e):
+            print("📁 No collection found")
             return 0
-        raise CouchDBConnectionError(f"Failed to load issues from {repo}: {e}")
+        raise
 
-    # Extract documents and keep CouchDB metadata
-    issues_with_metadata = []
-    for row in data.get("rows", []):
-        if "doc" in row:
-            doc = row["doc"]
-            # Skip design documents
-            if doc.get("_id", "").startswith("_design/"):
-                continue
-            issues_with_metadata.append(doc)
-
-    if not issues_with_metadata:
-        print("📁 No issues found in database")
+    if not issues:
+        print("📁 No issues found in collection")
         return 0
 
     # Count and update issues with recommendations
     cleared_count = 0
-    base_url = get_couchdb_url(repo)
+    updated_issues = []
 
-    for issue in issues_with_metadata:
+    for issue in issues:
         if issue.get("recommendations") and len(issue["recommendations"]) > 0:
             # Clear recommendations
             issue["recommendations"] = []
+            updated_issues.append(issue)
+            cleared_count += 1
 
-            # Update in database with proper revision
-            doc_id = issue["_id"]
-            try:
-                encoded_doc_id = quote(doc_id, safe="")
-                response = requests.put(
-                    f"{base_url}/{encoded_doc_id}", json=issue, auth=auth, timeout=30
-                )
-                if response.status_code in [200, 201]:
-                    cleared_count += 1
-                    print(f"  ✓ Cleared recommendations from issue #{issue['number']}")
-                else:
-                    print(
-                        f"  ❌ Failed to clear recommendations from issue #{issue['number']}: {response.status_code}"
-                    )
-            except requests.exceptions.RequestException as e:
-                print(
-                    f"  ❌ Network error clearing recommendations from issue #{issue['number']}: {e}"
-                )
+    if updated_issues:
+        # Upsert the updated issues
+        upsert_issues(repo, updated_issues)
 
     print(f"✅ Cleared recommendations from {cleared_count} issues")
     return cleared_count
 
 
-def load_issues(repo: str) -> list[dict[str, Any]]:
-    """Load all issues from CouchDB database."""
-    # Validate repo parameter to prevent incorrect database naming
-    if (
-        ".db" in repo
-        or ".json" in repo
-        or ".gz" in repo
-        or "issues-" in repo
-        or "enriched-" in repo
-    ):
-        raise ValueError(
-            f"Invalid repo name '{repo}': should be 'owner/repo', not a file path"
-        )
-
-    url = f"{get_couchdb_url(repo)}/_all_docs?include_docs=true"
-    auth = get_auth()
-
-    try:
-        response = requests.get(url, auth=auth, timeout=60)
-        response.raise_for_status()
-
-        data = response.json()
-
-        # Extract documents and remove CouchDB metadata
-        issues = []
-        for row in data.get("rows", []):
-            if "doc" in row:
-                doc = row["doc"].copy()
-                # Skip design documents
-                if doc.get("_id", "").startswith("_design/"):
-                    continue
-                # Remove CouchDB internal fields
-                doc.pop("_id", None)
-                doc.pop("_rev", None)
-                issues.append(doc)
-
-        return issues
-
-    except requests.exceptions.RequestException as e:
-        if hasattr(e, "response") and e.response.status_code == 404:
-            # Database doesn't exist yet, return empty list
-            return []
-        raise CouchDBConnectionError(f"Failed to load issues from {repo}: {e}")
+# Keep these functions for backward compatibility during migration
+def load_design_documents(repo: str, config: dict[str, Any] | None = None) -> None:
+    """No-op for Qdrant - no design documents needed."""
+    pass
 
 
-def upsert_issues(repo: str, issues: list[dict[str, Any]]) -> None:
-    """Upsert issues to CouchDB database (update existing, insert new)."""
-    # Validate repo parameter to prevent incorrect database naming
-    if (
-        ".db" in repo
-        or ".json" in repo
-        or ".gz" in repo
-        or "issues-" in repo
-        or "enriched-" in repo
-    ):
-        raise ValueError(
-            f"Invalid repo name '{repo}': should be 'owner/repo', not a file path"
-        )
+def ensure_indexes(repo: str, config: dict[str, Any] | None = None) -> None:
+    """No-op for Qdrant - indexes are handled automatically."""
+    pass
 
-    if not issues:
-        return
 
-    # Ensure database exists
-    ensure_database_exists(repo)
-    ensure_indexes(repo)
+def documents_are_equal(doc1: dict[str, Any], doc2: dict[str, Any]) -> bool:
+    """Compare two documents for equality, ignoring internal fields."""
+    # Create copies without internal fields and pulled_date (which always changes)
+    clean_doc1 = {
+        k: v for k, v in doc1.items() if k != "pulled_date"
+    }
+    clean_doc2 = {
+        k: v for k, v in doc2.items() if k != "pulled_date"
+    }
 
-    auth = get_auth()
-    base_url = get_couchdb_url(repo)
+    return clean_doc1 == clean_doc2
 
-    # Process each issue individually to avoid conflicts
-    for issue in issues:
-        doc_id = f"{repo}-{issue['number']}"
-        doc = convert_numpy_types(issue).copy()
-        doc["_id"] = doc_id
 
-        # Add pulled_date for tracking when data was last fetched
-        from datetime import datetime
+def get_database_name(repo: str, config: dict[str, Any] | None = None) -> str:
+    """Get the database/collection name for a repository (backward compatibility)."""
+    return get_collection_name(repo, config)
 
-        doc["pulled_date"] = datetime.now().isoformat()
 
-        # Get current revision if document exists and check if update is needed
-        existing_doc = None
-        try:
-            encoded_doc_id = quote(doc_id, safe="")
-            response = requests.get(
-                f"{base_url}/{encoded_doc_id}", auth=auth, timeout=30
-            )
-            if response.status_code == 200:
-                existing_doc = response.json()
-                if "_rev" in existing_doc:
-                    doc["_rev"] = existing_doc["_rev"]
-
-                    # Check if documents are the same - skip update if no changes
-                    if documents_are_equal(existing_doc, doc):
-                        print(
-                            f"  → Issue #{issue['number']}: No changes detected, skipping database update"
-                        )
-                        return  # No changes needed
-        except requests.exceptions.RequestException:
-            # Document doesn't exist, will be created
-            pass
-
-        # Save the document
-        try:
-            encoded_doc_id = quote(doc_id, safe="")
-            response = requests.put(
-                f"{base_url}/{encoded_doc_id}", json=doc, auth=auth, timeout=30
-            )
-            if response.status_code in [200, 201]:
-                # Success - print appropriate message
-                comments_count = len(doc.get("comments", []))
-                cross_refs_count = len(doc.get("cross_references", []))
-                updated_at = doc.get("updatedAt", "unknown")
-                action = "updated" if existing_doc else "created"
-                print(
-                    f"  ✓ Issue #{issue['number']} (updated: {updated_at}): {comments_count} comments, {cross_refs_count} cross-refs - {action} in database"
-                )
-            elif response.status_code == 409:
-                # Document conflict - merge with current version
-                try:
-                    print(f"Debug: Fetching URL: {base_url}/{encoded_doc_id}")
-                    get_response = requests.get(
-                        f"{base_url}/{encoded_doc_id}", auth=auth, timeout=30
-                    )
-                    print(f"Debug: Response status: {get_response.status_code}")
-                    print(f"Debug: Response headers: {dict(get_response.headers)}")
-                    if get_response.status_code == 200:
-                        existing_doc = get_response.json()
-                        if "_rev" not in existing_doc:
-                            print(f"Debug: Document keys: {list(existing_doc.keys())}")
-                            print(
-                                f"Debug: Response text (first 300 chars): {get_response.text[:300]}"
-                            )
-                            raise CouchDBDocumentConflict(
-                                f"Document for issue #{issue['number']} missing _rev field"
-                            )
-                        # Merge: existing doc gets updated with new issue data
-                        merged_doc = existing_doc.copy()
-                        merged_doc.update(convert_numpy_types(issue))
-                        merged_doc["_id"] = doc_id  # Ensure _id is correct
-                        # _rev is preserved from existing_doc by update()
-
-                        # Check if the merged document is different from existing
-                        if documents_are_equal(existing_doc, merged_doc):
-                            print(
-                                f"  → Issue #{issue['number']}: No changes after merge, skipping database update"
-                            )
-                            return  # No changes needed after merge
-
-                        retry_response = requests.put(
-                            f"{base_url}/{encoded_doc_id}",
-                            json=merged_doc,
-                            auth=auth,
-                            timeout=30,
-                        )
-                        if retry_response.status_code in [200, 201]:
-                            # Success after merge
-                            comments_count = len(merged_doc.get("comments", []))
-                            cross_refs_count = len(
-                                merged_doc.get("cross_references", [])
-                            )
-                            updated_at = merged_doc.get("updatedAt", "unknown")
-                            print(
-                                f"  ✓ Issue #{issue['number']} (updated: {updated_at}): {comments_count} comments, {cross_refs_count} cross-refs - merged and updated in database"
-                            )
-                        else:
-                            raise CouchDBDocumentConflict(
-                                f"Failed to upsert issue #{issue['number']} after merge: {retry_response.status_code}"
-                            )
-                    else:
-                        raise CouchDBDocumentConflict(
-                            f"Failed to fetch current document for issue #{issue['number']}: {get_response.status_code}"
-                        )
-                except requests.exceptions.RequestException as e:
-                    raise CouchDBConnectionError(
-                        f"Network error during merge for issue #{issue['number']}: {e}"
-                    )
-            elif response.status_code not in [200, 201]:
-                raise CouchDBConnectionError(
-                    f"Failed to upsert issue #{issue['number']}: {response.status_code}"
-                )
-        except requests.exceptions.InvalidJSONError as e:
-            # Debug JSON serialization issues
-            import math
-            print(f"\n❌ JSON serialization error for issue #{issue['number']}:")
-            print(f"   Error: {e}")
-            
-            # Find and report NaN/Infinity values
-            def find_invalid_values(obj, path=''):
-                invalid_found = []
-                if isinstance(obj, float):
-                    if math.isnan(obj):
-                        invalid_found.append(f"{path} = NaN")
-                    elif math.isinf(obj):
-                        invalid_found.append(f"{path} = Infinity")
-                elif isinstance(obj, dict):
-                    for k, v in obj.items():
-                        invalid_found.extend(find_invalid_values(v, f'{path}.{k}' if path else k))
-                elif isinstance(obj, list):
-                    for i, v in enumerate(obj):
-                        invalid_found.extend(find_invalid_values(v, f'{path}[{i}]'))
-                return invalid_found
-            
-            invalid_values = find_invalid_values(doc)
-            if invalid_values:
-                print("   Invalid values found:")
-                for invalid in invalid_values[:10]:  # Limit to first 10
-                    print(f"     - {invalid}")
-                if len(invalid_values) > 10:
-                    print(f"     ... and {len(invalid_values) - 10} more")
-            
-            # Print summary of issue data
-            print(f"\n   Issue #{issue['number']} summary:")
-            print(f"     Title: {issue.get('title', 'N/A')[:80]}")
-            print(f"     Created: {issue.get('createdAt', 'N/A')}")
-            print(f"     Updated: {issue.get('updatedAt', 'N/A')}")
-            print(f"     Age days: {issue.get('age_days', 'N/A')}")
-            print(f"     Engagements: {issue.get('engagements', 'N/A')}")
-            print(f"     Engagements/day: {issue.get('engagements_per_day', 'N/A')}")
-            
-            # Re-raise the original error
-            raise CouchDBConnectionError(
-                f"JSON serialization error for issue #{issue['number']}: {e}"
-            )
-        except requests.exceptions.RequestException as e:
-            raise CouchDBConnectionError(
-                f"Network error upserting issue #{issue['number']}: {e}"
-            )
+# Additional legacy alias
+get_couchdb_config = get_qdrant_config

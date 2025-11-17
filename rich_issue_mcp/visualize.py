@@ -13,7 +13,7 @@ from rich_issue_mcp.database import load_issues
 
 
 def load_enriched_issues(repo: str) -> list[dict[str, Any]]:
-    """Load enriched issues from TinyDB database."""
+    """Load enriched issues from database."""
     return load_issues(repo)
 
 

@@ -3,13 +3,11 @@
 
 import argparse
 
-from rich_issue_mcp.config import get_config, get_data_directory
+from rich_issue_mcp.config import get_config
 from rich_issue_mcp.database import clear_all_recommendations, load_issues
 from rich_issue_mcp.enrich import (
     add_k4_distances,
     add_quartile_columns,
-    add_summaries,
-    enrich_issue,
     print_stats,
 )
 from rich_issue_mcp.mcp_server import run_mcp_server
@@ -18,7 +16,7 @@ from rich_issue_mcp.validate import validate_database
 from rich_issue_mcp.visualize import visualize_issues
 
 
-def cmd_pull(args) -> None:
+def cmd_pull(args, config) -> None:
     """Execute pull command."""
     print(f"🔍 Fetching issues from {args.repo}...")
 
@@ -31,145 +29,147 @@ def cmd_pull(args) -> None:
         mode=getattr(args, "mode", "update"),
         issue_numbers=getattr(args, "issue_numbers", None),
         item_types=getattr(args, "item_types", "both"),
+        config=config,
     )
     print(f"📥 Retrieved {len(raw_issues)} issues")
     print("✅ Issues saved to database during fetch process")
 
 
-def cmd_enrich(args) -> None:
-    """Execute enrich command."""
-    print(f"🔍 Loading raw issues from {args.repo}...")
-    raw_issues = load_issues(args.repo)
-    print(f"📥 Retrieved {len(raw_issues)} issues")
-
-    # Get API key from config
-    config = get_config()
-    api_key = config.get("api", {}).get("mistral_api_key")
-    if not api_key:
-        raise ValueError("Mistral API key required in config.toml [api] section")
-
-    # Enrich issues
-    enriched = [enrich_issue(issue, api_key, args.model) for issue in raw_issues]
+def cmd_enrich(args, config) -> None:
+    """Execute enrich command for post-processing (quartiles and k4 distances)."""
+    print(f"🔍 Loading issues from {args.repo}...")
+    issues = load_issues(args.repo, config)
+    print(f"📥 Retrieved {len(issues)} issues")
 
     print("🔧 Computing quartile assignments...")
-    enriched = add_quartile_columns(enriched)
-
-    if not args.skip_summaries:
-        print("📝 Generating AI summaries...")
-        enriched = add_summaries(enriched, api_key)
-    else:
-        print("⏭️  Skipping AI summaries...")
-        for issue in enriched:
-            issue["summary"] = None
+    enriched = add_quartile_columns(issues)
 
     print("🔧 Computing k-4 nearest neighbor distances...")
     enriched = add_k4_distances(enriched)
 
-    # Apply enrichment using individual upserts to preserve existing data
-    print("💾 Saving enriched issues using individual upserts...")
+    # Apply post-processing using individual upserts to preserve existing data
+    print("💾 Saving post-processed issues using individual upserts...")
     from rich_issue_mcp.database import upsert_issues
 
     for i, issue in enumerate(enriched):
         if (i + 1) % 100 == 0:
-            print(f"  Saved {i + 1}/{len(enriched)} enriched issues")
+            print(f"  Saved {i + 1}/{len(enriched)} post-processed issues")
         upsert_issues(args.repo, [issue])
 
-    print("✅ Enriched issue database saved using individual upserts")
+    print("✅ Post-processed issue database saved using individual upserts")
     print_stats(enriched)
 
 
-def cmd_mcp(args) -> None:
+def cmd_mcp(args, config) -> None:
     """Execute MCP server."""
-    run_mcp_server(host=args.host, port=args.port, repo=args.repo)
+    run_mcp_server(host=args.host, port=args.port, repo=args.repo, config=config)
 
 
-def cmd_visualize(args) -> None:
+def cmd_visualize(args, config) -> None:
     """Execute visualize command."""
     print(f"📊 Visualizing repository: {args.repo}")
 
-    visualize_issues(args.repo, args.output, scale=args.scale)
+    visualize_issues(args.repo, args.output, scale=args.scale, config=config)
 
 
-def cmd_clean(args) -> None:
-    """Execute clean command to remove downloaded data."""
-    from rich_issue_mcp.database import get_database_path
+def cmd_clean(args, config) -> None:
+    """Execute clean command to remove Qdrant collections."""
+    from rich_issue_mcp.database import (
+        get_collection_name,
+        get_headers,
+        get_qdrant_config,
+        get_qdrant_url,
+    )
+    import requests
+
+    headers = get_headers()
+    timeout = get_qdrant_config()["timeout"]
 
     if hasattr(args, "repo") and args.repo:
         # Clean specific repository
-        repo = args.repo
-        db_path = get_database_path(repo)
-
-        if not db_path.exists():
-            print(f"📁 No database file found for {repo}")
-            return
-
-        files_to_delete = [db_path]
-        print(f"🗑️  Database file for {repo}:")
+        collections_to_delete = [get_collection_name(args.repo)]
+        print(f"🗑️  Collection to delete for {args.repo}:")
     else:
-        # Clean all repositories
-        data_dir = get_data_directory()
-
-        if not data_dir.exists():
-            print("📁 No data directory found")
+        # List all collections and filter for issue collections
+        try:
+            response = requests.get(
+                get_qdrant_url("collections"),
+                headers=headers,
+                timeout=timeout,
+            )
+            response.raise_for_status()
+            all_collections = response.json()["result"]["collections"]
+            
+            # Filter for issue collections (starting with "issues_")
+            collections_to_delete = [
+                col["name"] for col in all_collections 
+                if col["name"].startswith("issues_")
+            ]
+            
+            if not collections_to_delete:
+                print("📁 No issue collections found in Qdrant")
+                return
+                
+            print("🗑️  Collections to be deleted:")
+        except requests.exceptions.RequestException as e:
+            print(f"❌ Failed to list Qdrant collections: {e}")
             return
 
-        # Find data files (TinyDB database files)
-        patterns = ["issues-*.db"]
-        files_to_delete = []
-
-        for pattern in patterns:
-            files_to_delete.extend(data_dir.glob(pattern))
-
-        if not files_to_delete:
-            print("📁 No data files found to clean")
-            return
-
-        print("🗑️  Files to be deleted:")
-
-    # Show files that would be deleted
-    for file_path in sorted(files_to_delete):
-        file_size = file_path.stat().st_size
-        if file_size > 1024 * 1024:
-            size_str = f"{file_size / (1024 * 1024):.1f} MB"
-        elif file_size > 1024:
-            size_str = f"{file_size / 1024:.1f} KB"
-        else:
-            size_str = f"{file_size} bytes"
-        print(f"  - {file_path} ({size_str})")
+    # Show collections that would be deleted with point counts
+    for collection_name in sorted(collections_to_delete):
+        try:
+            response = requests.get(
+                get_qdrant_url(f"collections/{collection_name}"),
+                headers=headers,
+                timeout=timeout,
+            )
+            if response.status_code == 200:
+                info = response.json()["result"]
+                points_count = info.get("points_count", 0)
+                print(f"  - {collection_name} ({points_count} issues)")
+            else:
+                print(f"  - {collection_name} (unknown size)")
+        except requests.exceptions.RequestException:
+            print(f"  - {collection_name} (unknown size)")
 
     # Ask for confirmation unless --yes flag is used
     if not args.yes:
-        response = input("\n❓ Delete these files? (y/N): ").strip().lower()
+        response = input("\n❓ Delete these collections? (y/N): ").strip().lower()
         if response not in ("y", "yes"):
             print("❌ Clean operation cancelled")
             return
 
-    # Delete the files
+    # Delete the collections
     deleted_count = 0
-    for file_path in files_to_delete:
+    for collection_name in collections_to_delete:
         try:
-            file_path.unlink()
+            response = requests.delete(
+                get_qdrant_url(f"collections/{collection_name}"),
+                headers=headers,
+                timeout=timeout,
+            )
+            response.raise_for_status()
             deleted_count += 1
-            print(f"🗑️  Deleted {file_path}")
-        except OSError as e:
-            print(f"❌ Failed to delete {file_path}: {e}")
+            print(f"🗑️  Deleted collection {collection_name}")
+        except requests.exceptions.RequestException as e:
+            print(f"❌ Failed to delete collection {collection_name}: {e}")
 
     if hasattr(args, "repo") and args.repo:
-        print(f"✅ Cleaned database for {args.repo}")
+        print(f"✅ Cleaned Qdrant collection for {args.repo}")
     else:
-        print(f"✅ Cleaned {deleted_count} files from {get_data_directory()}")
+        print(f"✅ Deleted {deleted_count} collections from Qdrant")
 
 
-def cmd_validate(args) -> None:
+def cmd_validate(args, config) -> None:
     """Execute validate command to check database integrity."""
     success = validate_database(
-        args.repo, delete_invalid=getattr(args, "delete_invalid", False)
+        args.repo, delete_invalid=getattr(args, "delete_invalid", False), config=config
     )
     if not success:
         exit(1)
 
 
-def cmd_tui(args) -> None:
+def cmd_tui(args, config) -> None:
     """Execute TUI command to browse database interactively."""
     from rich_issue_mcp.tui import run_tui
 
@@ -181,26 +181,16 @@ def cmd_tui(args) -> None:
         print(f"Error running TUI: {e}")
 
 
-def cmd_update_views(args) -> None:
-    """Execute update-views command."""
-    from rich_issue_mcp.database import ensure_database_exists, ensure_indexes
-
-    print(f"🔧 Updating CouchDB views and indexes for {args.repo}...")
-
-    try:
-        # Ensure database exists first
-        ensure_database_exists(args.repo)
-
-        # Update views and indexes
-        ensure_indexes(args.repo)
-
-        print("✅ Views and indexes updated successfully")
-
-    except Exception as e:
-        print(f"❌ Failed to update views: {e}")
+def cmd_update_views(args, config) -> None:
+    """Execute update-views command (no-op for Qdrant)."""
+    print(
+        f"ℹ️  Qdrant handles indexing automatically - "
+        f"no manual view updates needed for {args.repo}"
+    )
+    print("✅ Collection indexes are managed automatically by Qdrant")
 
 
-def cmd_clear_recommendations(args) -> None:
+def cmd_clear_recommendations(args, config) -> None:
     """Execute clear-recommendations command."""
     # Ask for confirmation unless --yes flag is used
     if not args.yes:
@@ -214,7 +204,7 @@ def cmd_clear_recommendations(args) -> None:
             return
 
     try:
-        cleared_count = clear_all_recommendations(args.repo)
+        cleared_count = clear_all_recommendations(args.repo, config)
         if cleared_count > 0:
             print(
                 f"✅ Successfully cleared recommendations from {cleared_count} issues"
@@ -225,13 +215,13 @@ def cmd_clear_recommendations(args) -> None:
         print(f"❌ Failed to clear recommendations: {e}")
 
 
-def cmd_export_csv(args) -> None:
+def cmd_export_csv(args, config) -> None:
     """Export issues with recommendations to CSV."""
     import csv
     from pathlib import Path
     
     print(f"📊 Loading issues from {args.repo}...")
-    issues = load_issues(args.repo)
+    issues = load_issues(args.repo, config)
     
     # Filter issues that have at least one recommendation
     issues_with_recs = [
@@ -460,7 +450,7 @@ def main() -> None:
 
     # Update views command
     views_parser = subparsers.add_parser(
-        "update-views", help="Update CouchDB views and indexes for efficient querying"
+        "update-views", help="Update database views and indexes (no-op for Qdrant)"
     )
     views_parser.add_argument(
         "repo", help="Repository to update views for (e.g., 'owner/repo')"
@@ -500,7 +490,17 @@ def main() -> None:
         parser.print_help()
         return
 
-    args.func(args)
+    # Read config once and pass to all commands
+    try:
+        config = get_config()
+    except FileNotFoundError as e:
+        print(f"❌ {e}")
+        return
+    except ValueError as e:
+        print(f"❌ {e}")
+        return
+
+    args.func(args, config)
 
 
 if __name__ == "__main__":
