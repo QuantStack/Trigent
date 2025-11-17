@@ -1,0 +1,32 @@
+{
+  "number": 1010,
+  "title": "Cell execution order indicators are confusing",
+  "body": "The execution numbers next to cells don't always reflect the actual execution order, especially when cells fail or are interrupted. This makes debugging difficult and confuses new users.",
+  "state": "OPEN",
+  "createdAt": "2024-01-11T10:00:00",
+  "updatedAt": "2024-01-11T11:00:00",
+  "url": "https://github.com/test/repo/issues/1010",
+  "author": {"login": "jupyter_teacher"},
+  "labels": [{"name": "ux"}, {"name": "notebook"}, {"name": "enhancement"}],
+  "assignees": [],
+  "reactions": {
+    "+1": 8,
+    "-1": 1,
+    "laugh": 0,
+    "hooray": 0,
+    "confused": 0,
+    "heart": 3,
+    "rocket": 1,
+    "eyes": 5
+  },
+  "comments": [
+    {
+      "author": {"login": "ux_designer_bob"},
+      "body": "We could add visual indicators for failed executions and better state management.",
+      "createdAt": "2024-01-11T10:30:00",
+      "reactions": {"+1": 4, "-1": 0, "laugh": 0, "hooray": 2, "confused": 0, "heart": 1, "rocket": 0, "eyes": 1}
+    }
+  ],
+  "cross_references": [],
+  "subject": "notebook_execution"
+}

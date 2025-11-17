@@ -1,0 +1,32 @@
+{
+  "number": 1006,
+  "title": "Custom keyboard shortcuts don't persist across sessions",
+  "body": "When I set custom keyboard shortcuts in the settings, they work fine during the current session but are reset to defaults when I restart JupyterLab. The settings seem to save but don't load properly.",
+  "state": "OPEN",
+  "createdAt": "2024-01-07T10:00:00",
+  "updatedAt": "2024-01-07T11:00:00",
+  "url": "https://github.com/test/repo/issues/1006",
+  "author": {"login": "power_user_carol"},
+  "labels": [{"name": "bug"}, {"name": "keyboard"}, {"name": "settings"}],
+  "assignees": [],
+  "reactions": {
+    "+1": 7,
+    "-1": 0,
+    "laugh": 0,
+    "hooray": 0,
+    "confused": 2,
+    "heart": 1,
+    "rocket": 0,
+    "eyes": 3
+  },
+  "comments": [
+    {
+      "author": {"login": "settings_expert"},
+      "body": "Check if the settings directory has write permissions. This might be a file system issue.",
+      "createdAt": "2024-01-07T10:30:00",
+      "reactions": {"+1": 1, "-1": 0, "laugh": 0, "hooray": 0, "confused": 0, "heart": 0, "rocket": 0, "eyes": 2}
+    }
+  ],
+  "cross_references": [],
+  "subject": "keyboard_shortcuts"
+}

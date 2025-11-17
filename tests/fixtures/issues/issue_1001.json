@@ -1,0 +1,40 @@
+{
+  "number": 1001,
+  "title": "Cell execution fails with undefined variable error",
+  "body": "When I run cells in a notebook, sometimes I get 'NameError: name X is not defined' even though the variable was defined in a previous cell. This happens randomly and is very frustrating for data analysis workflows.",
+  "state": "OPEN",
+  "createdAt": "2024-01-02T10:00:00",
+  "updatedAt": "2024-01-02T12:00:00",
+  "url": "https://github.com/test/repo/issues/1001",
+  "author": {"login": "data_scientist_alice"},
+  "labels": [{"name": "bug"}, {"name": "notebook"}],
+  "assignees": [],
+  "reactions": {
+    "+1": 5,
+    "-1": 0,
+    "laugh": 0,
+    "hooray": 0,
+    "confused": 2,
+    "heart": 1,
+    "rocket": 0,
+    "eyes": 3
+  },
+  "comments": [
+    {
+      "author": {"login": "notebook_expert"},
+      "body": "This might be related to kernel state management. Try restarting the kernel.",
+      "createdAt": "2024-01-02T11:00:00",
+      "reactions": {"+1": 2, "-1": 0, "laugh": 0, "hooray": 0, "confused": 0, "heart": 0, "rocket": 0, "eyes": 1}
+    },
+    {
+      "author": {"login": "data_scientist_alice"},
+      "body": "Restarting helps temporarily but the issue comes back after a few cell executions.",
+      "createdAt": "2024-01-02T11:30:00",
+      "reactions": {"+1": 1, "-1": 0, "laugh": 0, "hooray": 0, "confused": 1, "heart": 0, "rocket": 0, "eyes": 0}
+    }
+  ],
+  "cross_references": [
+    {"number": 1005, "title": "Notebook kernel becomes unresponsive", "url": "https://github.com/test/repo/issues/1005"}
+  ],
+  "subject": "notebook_execution"
+}

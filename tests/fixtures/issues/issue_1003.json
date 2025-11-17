@@ -1,0 +1,27 @@
+{
+  "number": 1003,
+  "title": "File browser doesn't refresh when files are added externally",
+  "body": "When I add files to the project directory using external tools (like git clone or file manager), the file browser in JupyterLab doesn't automatically refresh to show the new files. I have to manually refresh the page.",
+  "state": "OPEN",
+  "createdAt": "2024-01-04T10:00:00",
+  "updatedAt": "2024-01-04T11:00:00",
+  "url": "https://github.com/test/repo/issues/1003",
+  "author": {"login": "filesystem_user"},
+  "labels": [{"name": "bug"}, {"name": "file-browser"}],
+  "assignees": [],
+  "reactions": {
+    "+1": 6,
+    "-1": 0,
+    "laugh": 0,
+    "hooray": 0,
+    "confused": 1,
+    "heart": 0,
+    "rocket": 0,
+    "eyes": 4
+  },
+  "comments": [],
+  "cross_references": [
+    {"number": 1004, "title": "File browser shows outdated file sizes", "url": "https://github.com/test/repo/issues/1004"}
+  ],
+  "subject": "file_browser"
+}

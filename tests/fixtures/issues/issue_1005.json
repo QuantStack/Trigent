@@ -1,0 +1,40 @@
+{
+  "number": 1005,
+  "title": "Notebook kernel becomes unresponsive during long operations",
+  "body": "When running cells with long-running operations (like training ML models), the notebook kernel becomes completely unresponsive. Cannot interrupt execution or run other cells.",
+  "state": "OPEN",
+  "createdAt": "2024-01-06T10:00:00",
+  "updatedAt": "2024-01-06T14:00:00",
+  "url": "https://github.com/test/repo/issues/1005",
+  "author": {"login": "ml_researcher"},
+  "labels": [{"name": "bug"}, {"name": "notebook"}, {"name": "kernel"}],
+  "assignees": [{"login": "kernel_team"}],
+  "reactions": {
+    "+1": 12,
+    "-1": 0,
+    "laugh": 0,
+    "hooray": 0,
+    "confused": 3,
+    "heart": 2,
+    "rocket": 0,
+    "eyes": 8
+  },
+  "comments": [
+    {
+      "author": {"login": "kernel_team"},
+      "body": "We're investigating this. It seems to be related to the GIL and how we handle kernel communication.",
+      "createdAt": "2024-01-06T12:00:00",
+      "reactions": {"+1": 4, "-1": 0, "laugh": 0, "hooray": 1, "confused": 0, "heart": 1, "rocket": 1, "eyes": 2}
+    },
+    {
+      "author": {"login": "ml_researcher"},
+      "body": "This is blocking my research workflow. Any workarounds available?",
+      "createdAt": "2024-01-06T13:00:00",
+      "reactions": {"+1": 5, "-1": 0, "laugh": 0, "hooray": 0, "confused": 0, "heart": 0, "rocket": 0, "eyes": 1}
+    }
+  ],
+  "cross_references": [
+    {"number": 1001, "title": "Cell execution fails with undefined variable error", "url": "https://github.com/test/repo/issues/1001"}
+  ],
+  "subject": "notebook_execution"
+}

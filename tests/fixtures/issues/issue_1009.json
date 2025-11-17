@@ -1,0 +1,32 @@
+{
+  "number": 1009,
+  "title": "Esc key doesn't exit command mode in notebook",
+  "body": "In notebook cells, pressing Esc should exit command mode and return to normal mode, but it's not working consistently. Sometimes requires multiple presses or clicking outside the cell.",
+  "state": "OPEN",
+  "createdAt": "2024-01-10T10:00:00",
+  "updatedAt": "2024-01-10T11:00:00",
+  "url": "https://github.com/test/repo/issues/1009",
+  "author": {"login": "notebook_user_dave"},
+  "labels": [{"name": "bug"}, {"name": "keyboard"}, {"name": "notebook"}],
+  "assignees": [],
+  "reactions": {
+    "+1": 11,
+    "-1": 0,
+    "laugh": 0,
+    "hooray": 0,
+    "confused": 1,
+    "heart": 0,
+    "rocket": 0,
+    "eyes": 4
+  },
+  "comments": [
+    {
+      "author": {"login": "notebook_expert"},
+      "body": "This is a focus handling issue. The cell might not be properly detecting keyboard events.",
+      "createdAt": "2024-01-10T10:45:00",
+      "reactions": {"+1": 5, "-1": 0, "laugh": 0, "hooray": 1, "confused": 0, "heart": 0, "rocket": 0, "eyes": 2}
+    }
+  ],
+  "cross_references": [],
+  "subject": "keyboard_shortcuts"
+}

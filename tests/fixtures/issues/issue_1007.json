@@ -1,0 +1,32 @@
+{
+  "number": 1007,
+  "title": "File browser navigation is slow with large directories",
+  "body": "Navigation in the file browser becomes extremely slow when dealing with directories containing thousands of files. Clicking on folders takes several seconds to respond.",
+  "state": "OPEN",
+  "createdAt": "2024-01-08T10:00:00",
+  "updatedAt": "2024-01-08T12:00:00",
+  "url": "https://github.com/test/repo/issues/1007",
+  "author": {"login": "big_data_user"},
+  "labels": [{"name": "performance"}, {"name": "file-browser"}],
+  "assignees": [],
+  "reactions": {
+    "+1": 9,
+    "-1": 0,
+    "laugh": 0,
+    "hooray": 0,
+    "confused": 0,
+    "heart": 1,
+    "rocket": 0,
+    "eyes": 6
+  },
+  "comments": [
+    {
+      "author": {"login": "browser_dev"},
+      "body": "We need to implement lazy loading and virtualization for large directories.",
+      "createdAt": "2024-01-08T11:00:00",
+      "reactions": {"+1": 4, "-1": 0, "laugh": 0, "hooray": 2, "confused": 0, "heart": 0, "rocket": 1, "eyes": 1}
+    }
+  ],
+  "cross_references": [],
+  "subject": "file_browser"
+}

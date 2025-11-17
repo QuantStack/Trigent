@@ -1,0 +1,34 @@
+{
+  "number": 1004,
+  "title": "File browser shows outdated file sizes",
+  "body": "The file browser displays incorrect file sizes for files that have been modified outside of JupyterLab. The sizes shown are from when JupyterLab was first started, not the current sizes.",
+  "state": "OPEN",
+  "createdAt": "2024-01-05T10:00:00",
+  "updatedAt": "2024-01-05T12:00:00",
+  "url": "https://github.com/test/repo/issues/1004",
+  "author": {"login": "filesystem_user"},
+  "labels": [{"name": "bug"}, {"name": "file-browser"}, {"name": "metadata"}],
+  "assignees": [],
+  "reactions": {
+    "+1": 4,
+    "-1": 0,
+    "laugh": 0,
+    "hooray": 0,
+    "confused": 0,
+    "heart": 0,
+    "rocket": 0,
+    "eyes": 2
+  },
+  "comments": [
+    {
+      "author": {"login": "browser_dev"},
+      "body": "This is related to the file watching system. We need to improve the refresh mechanism.",
+      "createdAt": "2024-01-05T11:00:00",
+      "reactions": {"+1": 2, "-1": 0, "laugh": 0, "hooray": 0, "confused": 0, "heart": 1, "rocket": 0, "eyes": 1}
+    }
+  ],
+  "cross_references": [
+    {"number": 1003, "title": "File browser doesn't refresh when files are added externally", "url": "https://github.com/test/repo/issues/1003"}
+  ],
+  "subject": "file_browser"
+}

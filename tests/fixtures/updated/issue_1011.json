@@ -1,0 +1,32 @@
+{
+  "number": 1011,
+  "title": "Dark mode toggle not working in file browser",
+  "body": "The dark mode setting doesn't apply correctly to the file browser panel. Text remains dark on dark background making it unreadable.",
+  "state": "OPEN",
+  "createdAt": "2024-01-12T10:00:00",
+  "updatedAt": "2024-01-12T12:00:00",
+  "url": "https://github.com/test/repo/issues/1011",
+  "author": {"login": "dark_mode_user"},
+  "labels": [{"name": "bug"}, {"name": "ui"}, {"name": "dark-mode"}],
+  "assignees": [],
+  "reactions": {
+    "+1": 5,
+    "-1": 0,
+    "laugh": 0,
+    "hooray": 0,
+    "confused": 0,
+    "heart": 1,
+    "rocket": 0,
+    "eyes": 3
+  },
+  "comments": [
+    {
+      "author": {"login": "theme_expert"},
+      "body": "This affects the CSS cascade in the file browser component. Need to update the theme selectors.",
+      "createdAt": "2024-01-12T11:00:00",
+      "reactions": {"+1": 2, "-1": 0, "laugh": 0, "hooray": 0, "confused": 0, "heart": 0, "rocket": 0, "eyes": 1}
+    }
+  ],
+  "cross_references": [],
+  "subject": "ui_theming"
+}
