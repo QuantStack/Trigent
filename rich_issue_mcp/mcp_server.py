@@ -7,7 +7,9 @@ from typing import Any
 
 from fastmcp import FastMCP
 
-from rich_issue_mcp.database import load_issues, save_issues
+from rich_issue_mcp.config import get_config
+from rich_issue_mcp.database import load_issues, upsert_issues
+from rich_issue_mcp.enrich import get_mistral_embedding
 
 mcp = FastMCP("Rich Issues Server")
 
@@ -15,6 +17,18 @@ mcp = FastMCP("Rich Issues Server")
 def _get_repo_name(repo: str | None = None) -> str:
     """Get repository name, defaulting to jupyterlab/jupyterlab."""
     return repo or "jupyterlab/jupyterlab"
+
+
+def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    """Calculate cosine similarity between two embedding vectors."""
+    dot_product = sum(x * y for x, y in zip(a, b, strict=False))
+    magnitude_a = sum(x * x for x in a) ** 0.5
+    magnitude_b = sum(x * x for x in b) ** 0.5
+    return (
+        dot_product / (magnitude_a * magnitude_b)
+        if magnitude_a and magnitude_b
+        else 0
+    )
 
 
 @mcp.tool()
@@ -61,15 +75,6 @@ def find_similar_issues(
     if not target or not target.get("embedding"):
         return []
 
-    def cosine_similarity(a: list[float], b: list[float]) -> float:
-        dot_product = sum(x * y for x, y in zip(a, b, strict=False))
-        magnitude_a = sum(x * x for x in a) ** 0.5
-        magnitude_b = sum(x * x for x in b) ** 0.5
-        return (
-            dot_product / (magnitude_a * magnitude_b)
-            if magnitude_a and magnitude_b
-            else 0
-        )
 
     similar = []
     for issue in issues:
@@ -84,7 +89,58 @@ def find_similar_issues(
             elif status.lower() == "closed" and issue_state != "closed":
                 continue
 
-        similarity = cosine_similarity(target["embedding"], issue["embedding"])
+        similarity = _cosine_similarity(target["embedding"], issue["embedding"])
+        if similarity >= threshold:
+            result = {
+                "number": issue["number"],
+                "title": issue.get("title"),
+                "summary": issue.get("summary"),
+                "url": issue.get("url"),
+                "similarity": similarity,
+                "state": issue.get("state"),
+            }
+            similar.append(result)
+
+    return sorted(similar, key=lambda x: x["similarity"], reverse=True)[:limit]
+
+
+@mcp.tool()
+def find_similar_issues_by_text(
+    text: str,
+    threshold: float = 0.8,
+    limit: int = 10,
+    repo: str | None = None,
+    status: str | None = None,
+) -> list[dict[str, Any]]:
+    """Find issues similar to given text using embeddings. Optionally filter by status (open/closed)."""
+    repo = _get_repo_name(repo)
+    issues = load_issues(repo)
+
+    # Get Mistral API key from config
+    config = get_config()
+    api_key = config.get("api", {}).get("mistral_api_key")
+    if not api_key:
+        return []
+
+    # Generate embedding for the input text
+    text_embedding = get_mistral_embedding(text, api_key)
+    if not text_embedding:
+        return []
+
+    similar = []
+    for issue in issues:
+        if not issue.get("embedding"):
+            continue
+
+        # Filter by status if specified
+        if status:
+            issue_state = issue.get("state", "").lower()
+            if status.lower() == "open" and issue_state != "open":
+                continue
+            elif status.lower() == "closed" and issue_state != "closed":
+                continue
+
+        similarity = _cosine_similarity(text_embedding, issue["embedding"])
         if similarity >= threshold:
             result = {
                 "number": issue["number"],
@@ -300,7 +356,8 @@ def add_recommendation(
     valid_levels = {"low", "medium", "high"}
     valid_recommendations = {
         "close_completed", "close_merge", "close_not_planned", "close_invalid",
-        "priority_high", "priority_medium", "priority_low", "needs_more_info"
+        "almost_done", "priority_high", "priority_medium", "priority_low",
+        "needs_more_info"
     }
 
     errors = []
@@ -405,9 +462,9 @@ def add_recommendation(
     issue["recommendations"].append(new_recommendation)
     recommendation_count = len(issue["recommendations"])
 
-    # Save updated database
+    # Save updated issue using individual upsert to preserve other data
     try:
-        save_issues(repo, issues)
+        upsert_issues(repo, [issue])
 
         # Generate ordinal number text
         ordinals = {1: "first", 2: "second", 3: "third", 4: "fourth", 5: "fifth"}
@@ -441,6 +498,7 @@ def get_recommendation_schema() -> dict[str, Any]:
                     "close_merge",
                     "close_not_planned",
                     "close_invalid",
+                    "almost_done",
                     "priority_high",
                     "priority_medium",
                     "priority_low",
@@ -451,6 +509,7 @@ def get_recommendation_schema() -> dict[str, Any]:
                     "close_merge": "Issue should be merged with another issue",
                     "close_not_planned": "Valid issue but not aligned with roadmap",
                     "close_invalid": "Invalid issue (spam, off-topic, etc.)",
+                    "almost_done": "Issue is nearly complete, needs minor work",
                     "priority_high": "Critical issue needing immediate attention",
                     "priority_medium": "Important issue for next sprint/release",
                     "priority_low": "Valid issue but lower priority",
@@ -769,8 +828,14 @@ def run_mcp_server(
     print("🚀 Starting MCP server")
     print(f"📂 Using repository: {repo}")
 
-    # Run with stdio transport (default for MCP)
-    mcp.run()
+    # Use HTTP transport (SSE) if host/port are specified and not default localhost
+    # Otherwise use stdio transport (default for MCP)
+    if host != "localhost" or port != 8000:
+        print(f"🌐 Starting HTTP server on {host}:{port}")
+        mcp.run(transport="sse", host=host, port=port)
+    else:
+        print("📡 Using STDIO transport")
+        mcp.run()
 
 
 if __name__ == "__main__":

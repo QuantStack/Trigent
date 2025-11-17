@@ -132,3 +132,54 @@ def get_alignment_date() -> str:
     except (FileNotFoundError, ValueError):
         # Use default if config not available
         return "2024-01-01"
+
+
+def get_couchdb_config() -> dict[str, Any]:
+    """
+    Get CouchDB configuration from config.toml.
+
+    Returns:
+        Dictionary containing CouchDB configuration with defaults:
+        - server_url: CouchDB server URL (default: http://localhost:5984)
+        - username: Optional username for authentication
+        - password: Optional password for authentication
+        - timeout: Request timeout in seconds (default: 30)
+
+    Raises:
+        FileNotFoundError: If config file cannot be found
+        ValueError: If config file is invalid TOML
+    """
+    try:
+        config = get_config()
+        couchdb_config = config.get("couchdb", {})
+        
+        # Apply defaults
+        defaults = {
+            "server_url": "http://localhost:5984",
+            "username": None,
+            "password": None,
+            "timeout": 30
+        }
+        
+        # Merge with configured values
+        result = defaults.copy()
+        result.update(couchdb_config)
+        
+        # Validate server_url
+        server_url = result["server_url"]
+        if not server_url.startswith(("http://", "https://")):
+            raise ValueError(f"CouchDB server_url must start with http:// or https://, got: {server_url}")
+        
+        # Remove trailing slash
+        result["server_url"] = server_url.rstrip("/")
+        
+        return result
+        
+    except (FileNotFoundError, ValueError):
+        # Return defaults if config not available
+        return {
+            "server_url": "http://localhost:5984",
+            "username": None,
+            "password": None,
+            "timeout": 30
+        }

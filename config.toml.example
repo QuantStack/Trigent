@@ -28,3 +28,10 @@ max_issues = 1000
 # Data directory configuration (REQUIRED)
 # Must be an absolute path
 directory = "/path/to/your/data"  # Absolute path to data directory
+
+[couchdb]
+# CouchDB database configuration
+server_url = "http://localhost:5984"  # CouchDB server URL
+username = "admin"                    # CouchDB username (optional)
+password = "password"                 # CouchDB password (optional)
+timeout = 30                          # Request timeout in seconds (optional, default: 30)

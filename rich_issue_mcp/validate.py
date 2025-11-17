@@ -4,7 +4,7 @@
 from collections import defaultdict
 from typing import Any
 
-from rich_issue_mcp.database import load_issues, save_issues
+from rich_issue_mcp.database import load_issues, delete_issues
 
 
 def validate_required_fields(item: dict[str, Any]) -> list[str]:
@@ -365,8 +365,18 @@ def validate_database(repo: str, delete_invalid: bool = False) -> bool:
         )
         if confirm in ("yes", "y"):
             print(f"\n🗑️  Deleting {len(invalid_items)} invalid items...")
-            save_issues(repo, valid_items)
-            print(f"✅ Database updated: kept {len(valid_items)} valid items")
+            
+            # Extract issue numbers from invalid items
+            invalid_issue_numbers = [
+                item["number"] for item in invalid_items 
+                if "number" in item and isinstance(item["number"], int)
+            ]
+            
+            if invalid_issue_numbers:
+                successful, failed = delete_issues(repo, invalid_issue_numbers)
+                print(f"✅ Deletion complete: {successful} deleted, {failed} failed")
+            else:
+                print("⚠️  No valid issue numbers found in invalid items to delete")
 
             # Recalculate health score
             final_health_score = 100.0  # All remaining items are valid

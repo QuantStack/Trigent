@@ -14,6 +14,17 @@ from rich_issue_mcp.database import load_issues
 
 def get_last_updated_date(repo: str) -> datetime | None:
     """Get the most recent updated date from existing issues in database."""
+    from rich_issue_mcp.database import get_latest_updated_date_from_view, load_issues
+    
+    # Try the efficient view-based approach first
+    try:
+        latest_updated_str = get_latest_updated_date_from_view(repo)
+        if latest_updated_str:
+            return datetime.fromisoformat(latest_updated_str.replace("Z", "+00:00"))
+    except Exception as e:
+        print(f"⚠️  View-based query failed: {e}")
+    
+    # Fallback to loading all issues (slower but reliable)
     try:
         existing_issues = load_issues(repo)
         if not existing_issues:
@@ -555,6 +566,9 @@ def fetch_all_comments(repo: str, issue_number: int) -> list[dict[str, Any]] | N
 
         try:
             response = make_rest_request(comments_url, {"per_page": 100, "page": page})
+        except KeyboardInterrupt:
+            print(f"🛑 Interrupted while fetching comments for issue #{issue_number}")
+            raise
         except (requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError,
                 requests.exceptions.Timeout, requests.exceptions.RequestException) as e:
             print(f"❌ Network error fetching comments for issue #{issue_number}: {e}")
@@ -610,6 +624,9 @@ def fetch_all_timeline_cross_references(
 
         try:
             response = make_rest_request(timeline_url, {"per_page": 100, "page": page})
+        except KeyboardInterrupt:
+            print(f"🛑 Interrupted while fetching timeline for issue #{issue_number}")
+            raise
         except (requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError,
                 requests.exceptions.Timeout, requests.exceptions.RequestException) as e:
             print(f"❌ Network error fetching timeline for issue #{issue_number}: {e}")
@@ -678,7 +695,7 @@ def process_and_save_issue(repo: str, issue: dict[str, Any]) -> dict[str, Any] |
         )
         return None
 
-    # Transform to expected format
+    # Transform to expected format (without pulled_date for comparison)
     processed_issue = {
         "number": issue["number"],
         "title": issue["title"],
@@ -699,15 +716,10 @@ def process_and_save_issue(repo: str, issue: dict[str, Any]) -> dict[str, Any] |
         "number_of_comments": len(comments_list),
         "reactionGroups": issue.get("reactionGroups", []),
         "cross_references": cross_references,
-        "pulled_date": datetime.now().isoformat(),
     }
 
-    # Save immediately to database
+    # Save immediately to database (upsert_issues will handle the pulled_date and messaging)
     upsert_issues(repo, [processed_issue])
-
-    print(
-        f"  ✓ Issue #{issue_number} (updated: {issue['updated_at']}): {len(comments_list)} comments, {len(cross_references)} cross-refs - saved to database"
-    )
 
     return processed_issue
 

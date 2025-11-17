@@ -4,7 +4,7 @@
 import argparse
 
 from rich_issue_mcp.config import get_config, get_data_directory
-from rich_issue_mcp.database import load_issues, save_issues
+from rich_issue_mcp.database import clear_all_recommendations, load_issues
 from rich_issue_mcp.enrich import (
     add_k4_distances,
     add_quartile_columns,
@@ -33,9 +33,7 @@ def cmd_pull(args) -> None:
         item_types=getattr(args, "item_types", "both"),
     )
     print(f"📥 Retrieved {len(raw_issues)} issues")
-
-    save_issues(args.repo, raw_issues)
-    print("✅ Raw issue database saved to TinyDB")
+    print("✅ Issues saved to database during fetch process")
 
 
 def cmd_enrich(args) -> None:
@@ -67,9 +65,16 @@ def cmd_enrich(args) -> None:
     print("🔧 Computing k-4 nearest neighbor distances...")
     enriched = add_k4_distances(enriched)
 
+    # Apply enrichment using individual upserts to preserve existing data
+    print("💾 Saving enriched issues using individual upserts...")
+    from rich_issue_mcp.database import upsert_issues
 
-    save_issues(args.repo, enriched)
-    print("✅ Enriched issue database saved to TinyDB")
+    for i, issue in enumerate(enriched):
+        if (i + 1) % 100 == 0:
+            print(f"  Saved {i + 1}/{len(enriched)} enriched issues")
+        upsert_issues(args.repo, [issue])
+
+    print("✅ Enriched issue database saved using individual upserts")
     print_stats(enriched)
 
 
@@ -89,7 +94,7 @@ def cmd_clean(args) -> None:
     """Execute clean command to remove downloaded data."""
     from rich_issue_mcp.database import get_database_path
 
-    if hasattr(args, 'repo') and args.repo:
+    if hasattr(args, "repo") and args.repo:
         # Clean specific repository
         repo = args.repo
         db_path = get_database_path(repo)
@@ -149,7 +154,7 @@ def cmd_clean(args) -> None:
         except OSError as e:
             print(f"❌ Failed to delete {file_path}: {e}")
 
-    if hasattr(args, 'repo') and args.repo:
+    if hasattr(args, "repo") and args.repo:
         print(f"✅ Cleaned database for {args.repo}")
     else:
         print(f"✅ Cleaned {deleted_count} files from {get_data_directory()}")
@@ -176,6 +181,163 @@ def cmd_tui(args) -> None:
         print(f"Error running TUI: {e}")
 
 
+def cmd_update_views(args) -> None:
+    """Execute update-views command."""
+    from rich_issue_mcp.database import ensure_database_exists, ensure_indexes
+
+    print(f"🔧 Updating CouchDB views and indexes for {args.repo}...")
+
+    try:
+        # Ensure database exists first
+        ensure_database_exists(args.repo)
+
+        # Update views and indexes
+        ensure_indexes(args.repo)
+
+        print("✅ Views and indexes updated successfully")
+
+    except Exception as e:
+        print(f"❌ Failed to update views: {e}")
+
+
+def cmd_clear_recommendations(args) -> None:
+    """Execute clear-recommendations command."""
+    # Ask for confirmation unless --yes flag is used
+    if not args.yes:
+        response = (
+            input(f"\n❓ Clear all recommendations from {args.repo}? (y/N): ")
+            .strip()
+            .lower()
+        )
+        if response not in ("y", "yes"):
+            print("❌ Clear recommendations operation cancelled")
+            return
+
+    try:
+        cleared_count = clear_all_recommendations(args.repo)
+        if cleared_count > 0:
+            print(
+                f"✅ Successfully cleared recommendations from {cleared_count} issues"
+            )
+        else:
+            print("ℹ️  No issues had recommendations to clear")
+    except Exception as e:
+        print(f"❌ Failed to clear recommendations: {e}")
+
+
+def cmd_export_csv(args) -> None:
+    """Export issues with recommendations to CSV."""
+    import csv
+    from pathlib import Path
+    
+    print(f"📊 Loading issues from {args.repo}...")
+    issues = load_issues(args.repo)
+    
+    # Filter issues that have at least one recommendation
+    issues_with_recs = [
+        issue for issue in issues 
+        if issue.get("recommendations") and len(issue.get("recommendations", [])) > 0
+    ]
+    
+    if not issues_with_recs:
+        print("❌ No issues with recommendations found")
+        return
+    
+    print(f"📝 Found {len(issues_with_recs)} issues with recommendations")
+    
+    # Prepare CSV data with flattened first recommendation
+    csv_rows = []
+    for issue in issues_with_recs:
+        # Get the first (most recent) recommendation
+        first_rec = issue["recommendations"][0]
+        
+        # Create flattened row
+        row = {
+            # Issue fields
+            "number": issue.get("number"),
+            "title": issue.get("title"),
+            "url": issue.get("url"),
+            "state": issue.get("state"),
+            "created_at": issue.get("createdAt"),
+            "updated_at": issue.get("updatedAt"),
+            "labels": ", ".join([label.get("name", "") for label in issue.get("labels", [])]),
+            "author": issue.get("author", {}).get("login", ""),
+            "issue_summary": issue.get("summary"),
+            
+            # Metrics
+            "comments_count": issue.get("comments_count", 0),
+            "issue_total_emojis": issue.get("issue_total_emojis", 0),
+            "conversation_total_emojis": issue.get("conversation_total_emojis", 0),
+            "age_days": issue.get("age_days", 0),
+            "activity_score": issue.get("activity_score", 0),
+            
+            # First recommendation fields
+            "recommendation": first_rec.get("recommendation"),
+            "confidence": first_rec.get("confidence"),
+            "rec_summary": first_rec.get("summary"),
+            "rationale": first_rec.get("rationale"),
+            "report": first_rec.get("report"),
+            
+            # Analysis fields
+            "severity": first_rec.get("analysis", {}).get("severity"),
+            "frequency": first_rec.get("analysis", {}).get("frequency"),
+            "prevalence": first_rec.get("analysis", {}).get("prevalence"),
+            "solution_complexity": first_rec.get("analysis", {}).get("solution_complexity"),
+            "solution_risk": first_rec.get("analysis", {}).get("solution_risk"),
+            
+            # Context fields
+            "affected_packages": ", ".join(first_rec.get("context", {}).get("affected_packages", [])),
+            "affected_paths": ", ".join(first_rec.get("context", {}).get("affected_paths", [])),
+            "affected_components": ", ".join(first_rec.get("context", {}).get("affected_components", [])),
+            "merge_with": ", ".join([str(n) for n in first_rec.get("context", {}).get("merge_with", [])]),
+            "relevant_issues_count": len(first_rec.get("context", {}).get("relevant_issues", [])),
+            
+            # Meta fields
+            "reviewer": first_rec.get("meta", {}).get("reviewer"),
+            "review_timestamp": first_rec.get("meta", {}).get("timestamp"),
+            "model_version": first_rec.get("meta", {}).get("model_version"),
+            "total_recommendations": len(issue.get("recommendations", []))
+        }
+        
+        # Calculate priority score
+        level_map = {"low": 1, "medium": 2, "high": 3}
+        analysis = first_rec.get("analysis", {})
+        
+        severity = level_map.get(analysis.get("severity", "").lower(), 1)
+        frequency = level_map.get(analysis.get("frequency", "").lower(), 1)
+        prevalence = level_map.get(analysis.get("prevalence", "").lower(), 1)
+        complexity = level_map.get(analysis.get("solution_complexity", "").lower(), 1)
+        risk = level_map.get(analysis.get("solution_risk", "").lower(), 1)
+        
+        # Calculate priority score: (severity × frequency × prevalence) / (complexity × risk)
+        # Avoid division by zero
+        if complexity * risk > 0:
+            priority_score = (severity * frequency * prevalence) / (complexity * risk)
+        else:
+            priority_score = 0
+        
+        row["priority_score"] = round(priority_score, 2)
+        
+        csv_rows.append(row)
+    
+    # Determine output path
+    output_path = Path(args.output if args.output else f"{args.repo.replace('/', '_')}_recommendations.csv")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Write CSV file
+    if csv_rows:
+        fieldnames = list(csv_rows[0].keys())
+        
+        with open(output_path, "w", newline="", encoding="utf-8") as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(csv_rows)
+        
+        print(f"✅ Exported {len(csv_rows)} issues to {output_path}")
+    else:
+        print("❌ No data to export")
+
+
 def main() -> None:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -185,9 +347,7 @@ def main() -> None:
 
     # Pull command
     pull_parser = subparsers.add_parser("pull", help="Pull raw issues from GitHub")
-    pull_parser.add_argument(
-        "repo", help="Repository to analyze (e.g., 'owner/repo')"
-    )
+    pull_parser.add_argument("repo", help="Repository to analyze (e.g., 'owner/repo')")
     pull_parser.add_argument(
         "--exclude-closed",
         action="store_true",
@@ -242,9 +402,7 @@ def main() -> None:
 
     # MCP command
     mcp_parser = subparsers.add_parser("mcp", help="Start MCP server")
-    mcp_parser.add_argument(
-        "repo", help="Repository to serve (e.g., 'owner/repo')"
-    )
+    mcp_parser.add_argument("repo", help="Repository to serve (e.g., 'owner/repo')")
     mcp_parser.add_argument("--host", default="localhost", help="Host to bind to")
     mcp_parser.add_argument("--port", type=int, default=8000, help="Port to bind to")
     mcp_parser.set_defaults(func=cmd_mcp)
@@ -297,10 +455,44 @@ def main() -> None:
     tui_parser = subparsers.add_parser(
         "tui", help="Browse database interactively with Terminal UI"
     )
-    tui_parser.add_argument(
-        "repo", help="Repository to browse (e.g., 'owner/repo')"
-    )
+    tui_parser.add_argument("repo", help="Repository to browse (e.g., 'owner/repo')")
     tui_parser.set_defaults(func=cmd_tui)
+
+    # Update views command
+    views_parser = subparsers.add_parser(
+        "update-views", help="Update CouchDB views and indexes for efficient querying"
+    )
+    views_parser.add_argument(
+        "repo", help="Repository to update views for (e.g., 'owner/repo')"
+    )
+    views_parser.set_defaults(func=cmd_update_views)
+
+    # Clear recommendations command
+    clear_recs_parser = subparsers.add_parser(
+        "clear-recommendations",
+        help="Clear all recommendations from all issues in the repository",
+    )
+    clear_recs_parser.add_argument(
+        "repo", help="Repository to clear recommendations from (e.g., 'owner/repo')"
+    )
+    clear_recs_parser.add_argument(
+        "--yes", "-y", action="store_true", help="Skip confirmation prompt"
+    )
+    clear_recs_parser.set_defaults(func=cmd_clear_recommendations)
+
+    # Export CSV command
+    export_csv_parser = subparsers.add_parser(
+        "export-csv",
+        help="Export issues with recommendations to CSV (flattens first recommendation)",
+    )
+    export_csv_parser.add_argument(
+        "repo", help="Repository to export (e.g., 'owner/repo')"
+    )
+    export_csv_parser.add_argument(
+        "--output", "-o",
+        help="Output CSV file path (default: repo_recommendations.csv)",
+    )
+    export_csv_parser.set_defaults(func=cmd_export_csv)
 
     args = parser.parse_args()
 

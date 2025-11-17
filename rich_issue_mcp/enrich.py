@@ -278,6 +278,17 @@ def format_emoji_counts(reaction_groups: list[dict[str, Any]]) -> str:
     return f" [{', '.join(emoji_counts)}]" if emoji_counts else ""
 
 
+def format_date(date_str: str | None) -> str:
+    """Format a date string to YYYY-MM-DD format."""
+    if not date_str:
+        return ""
+    try:
+        date_obj = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+        return date_obj.strftime("%Y-%m-%d")
+    except (ValueError, AttributeError):
+        return ""
+
+
 def create_conversation_column(issue: dict[str, Any]) -> str:
     """Create a conversation column that combines title, body, and comments with emoji counts."""
     parts = []
@@ -290,11 +301,16 @@ def create_conversation_column(issue: dict[str, Any]) -> str:
     # Add body with author login (truncate if too long)
     body = issue.get("body", "")
     author_login = issue.get("author", {}).get("login", "unknown")
+    issue_date = format_date(issue.get("createdAt"))
     if body and body.strip():
         # Truncate body for conversation column
         if len(body) > 20000:
             body = body[:20000] + "... [truncated]"
-        body_part = f"{author_login}: {body.strip()}"
+        # Include date in the body display
+        if issue_date:
+            body_part = f"{author_login} ({issue_date}): {body.strip()}"
+        else:
+            body_part = f"{author_login}: {body.strip()}"
         # Add issue-level emoji counts
         emoji_counts = format_emoji_counts(issue.get("reactionGroups", []))
         body_part += emoji_counts
@@ -306,6 +322,7 @@ def create_conversation_column(issue: dict[str, Any]) -> str:
     for comment in comments:
         comment_body = comment.get("body", "")
         comment_author = comment.get("author", {}).get("login", "unknown")
+        comment_date = format_date(comment.get("createdAt"))
         if comment_body and comment_body.strip():
             # Truncate individual comments if too long
             if len(comment_body) > 5000:
@@ -316,7 +333,11 @@ def create_conversation_column(issue: dict[str, Any]) -> str:
                 parts.append("[... more comments truncated for conversation]")
                 break
 
-            comment_part = f"{comment_author}: {comment_body.strip()}"
+            # Include date in the comment display
+            if comment_date:
+                comment_part = f"{comment_author} ({comment_date}): {comment_body.strip()}"
+            else:
+                comment_part = f"{comment_author}: {comment_body.strip()}"
             # Add comment-level emoji counts
             if comment.get("reactionGroups"):
                 # Use GraphQL format with detailed emoji breakdown
@@ -386,7 +407,16 @@ def enrich_issue(
     """Enrich a single issue with additional metrics and embeddings."""
     enriched = issue.copy()
 
-    print(f"🔧 Enriching issue #{issue['number']}: {issue['title'][:50]}...")
+    # Debug: Check issue structure and handle missing keys
+    try:
+        issue_number = issue['number']
+        issue_title = issue.get('title', 'No title')[:50]
+        print(f"🔧 Enriching issue #{issue_number}: {issue_title}...")
+    except KeyError as e:
+        print(f"❌ KeyError in issue data: {e}")
+        print(f"📋 Issue keys available: {list(issue.keys())}")
+        print(f"📄 Issue document (first 500 chars): {str(issue)[:500]}...")
+        raise
 
     # Initialize recommendations field as empty list if not present
     if "recommendations" not in enriched:
