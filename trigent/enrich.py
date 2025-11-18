@@ -3,7 +3,6 @@
 
 import hashlib
 import json
-import re
 from datetime import datetime
 from typing import Any
 
@@ -264,7 +263,7 @@ def format_emoji_counts(reaction_groups: list[dict[str, Any]]) -> str:
         "CONFUSED": "😕",
         "HEART": "❤️",
         "ROCKET": "🚀",
-        "EYES": "👀"
+        "EYES": "👀",
     }
 
     emoji_counts = []
@@ -335,7 +334,9 @@ def create_conversation_column(issue: dict[str, Any]) -> str:
 
             # Include date in the comment display
             if comment_date:
-                comment_part = f"{comment_author} ({comment_date}): {comment_body.strip()}"
+                comment_part = (
+                    f"{comment_author} ({comment_date}): {comment_body.strip()}"
+                )
             else:
                 comment_part = f"{comment_author}: {comment_body.strip()}"
             # Add comment-level emoji counts
@@ -409,8 +410,8 @@ def enrich_issue(
 
     # Debug: Check issue structure and handle missing keys
     try:
-        issue_number = issue['number']
-        issue_title = issue.get('title', 'No title')[:50]
+        issue_number = issue["number"]
+        issue_title = issue.get("title", "No title")[:50]
         print(f"🔧 Enriching issue #{issue_number}: {issue_title}...")
     except KeyError as e:
         print(f"❌ KeyError in issue data: {e}")
@@ -480,9 +481,7 @@ def add_quartile_columns(issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return df.to_dict("records")
 
 
-def enrich_metrics_only(
-    issue: dict[str, Any]
-) -> dict[str, Any]:
+def enrich_metrics_only(issue: dict[str, Any]) -> dict[str, Any]:
     """Enrich issue with metrics only (no embeddings or summaries)."""
     enriched = issue.copy()
 
@@ -578,3 +577,33 @@ def print_stats(enriched: list[dict[str, Any]]) -> None:
     print(f"  Total issues: {total}")
     print(f"  With embeddings: {with_embeddings}")
     print(f"  With summaries: {with_summaries}")
+
+
+def enrich_issues(repo: str, config: dict[str, Any]) -> None:
+    """Enrich issues with embeddings and metrics."""
+    from trigent.database import load_issues, upsert_issues
+
+    print(f"🧠 Enriching issues for {repo}...")
+    issues = load_issues(repo, config)
+
+    if not issues:
+        print("⚠️  No issues found to enrich")
+        return
+
+    print(f"📥 Retrieved {len(issues)} issues")
+
+    print("🔧 Computing quartile assignments...")
+    enriched = add_quartile_columns(issues)
+
+    print("🔧 Computing k-4 nearest neighbor distances...")
+    enriched = add_k4_distances(enriched)
+
+    # Apply post-processing using individual upserts to preserve existing data
+    print("💾 Saving enriched issues...")
+    for i, issue in enumerate(enriched):
+        if (i + 1) % 100 == 0:
+            print(f"  Saved {i + 1}/{len(enriched)} enriched issues")
+        upsert_issues(repo, [issue], config)
+
+    print("✅ Issue enrichment complete")
+    print_stats(enriched)

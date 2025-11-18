@@ -313,26 +313,52 @@ class IssueTUI:
                     analysis = rec.get("analysis", {})
                     if analysis:
                         lines.append(("  Analysis:", curses.A_BOLD))
-                        lines.append((f"    Severity: {analysis.get('severity', '?')}", 0))
-                        lines.append((f"    Frequency: {analysis.get('frequency', '?')}", 0))
-                        lines.append((f"    Prevalence: {analysis.get('prevalence', '?')}", 0))
-                        lines.append((f"    Effort: {analysis.get('effort_estimate', '?')}", 0))
-                        lines.append((f"    Risk: {analysis.get('solution_risk', '?')}", 0))
+                        lines.append(
+                            (f"    Severity: {analysis.get('severity', '?')}", 0)
+                        )
+                        lines.append(
+                            (f"    Frequency: {analysis.get('frequency', '?')}", 0)
+                        )
+                        lines.append(
+                            (f"    Prevalence: {analysis.get('prevalence', '?')}", 0)
+                        )
+                        lines.append(
+                            (f"    Effort: {analysis.get('effort_estimate', '?')}", 0)
+                        )
+                        lines.append(
+                            (f"    Risk: {analysis.get('solution_risk', '?')}", 0)
+                        )
 
                     # Context section
                     context = rec.get("context", {})
                     if context:
                         if context.get("affected_packages"):
-                            lines.append((f"  Packages: {', '.join(context['affected_packages'])}", 0))
+                            lines.append(
+                                (
+                                    f"  Packages: {', '.join(context['affected_packages'])}",
+                                    0,
+                                )
+                            )
                         if context.get("affected_paths"):
-                            lines.append((f"  Paths: {', '.join(context['affected_paths'])}", 0))
+                            lines.append(
+                                (f"  Paths: {', '.join(context['affected_paths'])}", 0)
+                            )
                         if context.get("affected_components"):
-                            lines.append((f"  Components: {', '.join(context['affected_components'])}", 0))
+                            lines.append(
+                                (
+                                    f"  Components: {', '.join(context['affected_components'])}",
+                                    0,
+                                )
+                            )
                         if context.get("related_issues"):
-                            related_str = ', '.join(f"#{num}" for num in context['related_issues'])
+                            related_str = ", ".join(
+                                f"#{num}" for num in context["related_issues"]
+                            )
                             lines.append((f"  Related: {related_str}", 0))
                         if context.get("merge_with"):
-                            merge_str = ', '.join(f"#{num}" for num in context['merge_with'])
+                            merge_str = ", ".join(
+                                f"#{num}" for num in context["merge_with"]
+                            )
                             lines.append((f"  Merge with: {merge_str}", 0))
 
                     # Meta section
@@ -349,17 +375,27 @@ class IssueTUI:
                     lines.append((f"  Severity: {rec.get('severity', '?')}", 0))
                     lines.append((f"  Frequency: {rec.get('frequency', '?')}", 0))
                     lines.append((f"  Prevalence: {rec.get('prevalence', '?')}", 0))
-                    lines.append((f"  Recommendation: {rec.get('recommendation', '?')}", 0))
-                    lines.append((f"  Complexity: {rec.get('solution_complexity', '?')}", 0))
+                    lines.append(
+                        (f"  Recommendation: {rec.get('recommendation', '?')}", 0)
+                    )
+                    lines.append(
+                        (f"  Complexity: {rec.get('solution_complexity', '?')}", 0)
+                    )
                     lines.append((f"  Risk: {rec.get('solution_risk', '?')}", 0))
 
                     # Legacy affected components
                     if rec.get("affected_packages"):
-                        lines.append((f"  Packages: {', '.join(rec['affected_packages'])}", 0))
+                        lines.append(
+                            (f"  Packages: {', '.join(rec['affected_packages'])}", 0)
+                        )
                     if rec.get("affected_paths"):
-                        lines.append((f"  Paths: {', '.join(rec['affected_paths'])}", 0))
+                        lines.append(
+                            (f"  Paths: {', '.join(rec['affected_paths'])}", 0)
+                        )
                     if rec.get("affected_objects"):
-                        lines.append((f"  Objects: {', '.join(rec['affected_objects'])}", 0))
+                        lines.append(
+                            (f"  Objects: {', '.join(rec['affected_objects'])}", 0)
+                        )
 
                     lines.append((f"  Timestamp: {rec.get('timestamp', '?')}", 0))
 
@@ -793,6 +829,12 @@ def run_tui(repo: str = "jupyterlab/jupyterlab"):
     """Run the TUI application."""
     tui = IssueTUI(repo)
     curses.wrapper(tui.run)
+
+
+def main(repo: str, config: dict):
+    """Main entry point for TUI with config support."""
+    # TODO: Update IssueTUI to use config for database access
+    run_tui(repo)
 
 
 if __name__ == "__main__":

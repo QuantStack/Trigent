@@ -35,9 +35,7 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
     magnitude_a = sum(x * x for x in a) ** 0.5
     magnitude_b = sum(x * x for x in b) ** 0.5
     return (
-        dot_product / (magnitude_a * magnitude_b)
-        if magnitude_a and magnitude_b
-        else 0
+        dot_product / (magnitude_a * magnitude_b) if magnitude_a and magnitude_b else 0
     )
 
 
@@ -68,7 +66,7 @@ def _search_similar_in_qdrant(
         "score_threshold": threshold,
         "with_payload": True,
     }
-    
+
     if filter_conditions["must"]:
         search_payload["filter"] = filter_conditions
 
@@ -79,10 +77,10 @@ def _search_similar_in_qdrant(
             headers=headers,
             timeout=timeout,
         )
-        
+
         if response.status_code == 404:
             return []  # Collection doesn't exist
-            
+
         response.raise_for_status()
         results = response.json()["result"]
 
@@ -90,14 +88,16 @@ def _search_similar_in_qdrant(
         similar = []
         for hit in results:
             payload = hit["payload"]
-            similar.append({
-                "number": payload["number"],
-                "title": payload.get("title"),
-                "summary": payload.get("summary"),
-                "url": payload.get("url"),
-                "similarity": hit["score"],
-                "state": payload.get("state"),
-            })
+            similar.append(
+                {
+                    "number": payload["number"],
+                    "title": payload.get("title"),
+                    "summary": payload.get("summary"),
+                    "url": payload.get("url"),
+                    "similarity": hit["score"],
+                    "state": payload.get("state"),
+                }
+            )
 
         return similar
 
@@ -146,7 +146,7 @@ def find_similar_issues(
     """Find issues similar to target issue using embeddings. Optionally filter by status (open/closed)."""
     repo = _get_repo_name(repo)
     config = _mcp_config
-    
+
     # First, get the target issue to get its embedding
     issues = load_issues(repo, config)
     target = next((i for i in issues if i["number"] == issue_number), None)
@@ -157,9 +157,14 @@ def find_similar_issues(
     # Try Qdrant native search first
     config = _mcp_config
     qdrant_results = _search_similar_in_qdrant(
-        repo, target["embedding"], threshold, limit + 1, status, config  # +1 to exclude self
+        repo,
+        target["embedding"],
+        threshold,
+        limit + 1,
+        status,
+        config,  # +1 to exclude self
     )
-    
+
     if qdrant_results is not None:
         # Filter out the target issue itself
         return [r for r in qdrant_results if r["number"] != issue_number][:limit]
@@ -222,7 +227,7 @@ def find_similar_issues_by_text(
     qdrant_results = _search_similar_in_qdrant(
         repo, text_embedding, threshold, limit, status, config
     )
-    
+
     if qdrant_results is not None:
         return qdrant_results
 
@@ -291,8 +296,6 @@ def find_cross_referenced_issues(
         return filtered_refs
 
     return cross_refs
-
-
 
 
 @mcp.tool()
@@ -460,14 +463,22 @@ def add_recommendation(
     # Validate input parameters
     valid_levels = {"low", "medium", "high"}
     valid_recommendations = {
-        "close_completed", "close_merge", "close_not_planned", "close_invalid",
-        "almost_done", "priority_high", "priority_medium", "priority_low",
-        "needs_more_info"
+        "close_completed",
+        "close_merge",
+        "close_not_planned",
+        "close_invalid",
+        "almost_done",
+        "priority_high",
+        "priority_medium",
+        "priority_low",
+        "needs_more_info",
     }
 
     errors = []
     if recommendation not in valid_recommendations:
-        errors.append(f"recommendation must be one of: {', '.join(sorted(valid_recommendations))}")
+        errors.append(
+            f"recommendation must be one of: {', '.join(sorted(valid_recommendations))}"
+        )
     if confidence not in valid_levels:
         errors.append(f"confidence must be one of: {', '.join(sorted(valid_levels))}")
     if severity not in valid_levels:
@@ -477,9 +488,13 @@ def add_recommendation(
     if prevalence not in valid_levels:
         errors.append(f"prevalence must be one of: {', '.join(sorted(valid_levels))}")
     if solution_complexity not in valid_levels:
-        errors.append(f"solution_complexity must be one of: {', '.join(sorted(valid_levels))}")
+        errors.append(
+            f"solution_complexity must be one of: {', '.join(sorted(valid_levels))}"
+        )
     if solution_risk not in valid_levels:
-        errors.append(f"solution_risk must be one of: {', '.join(sorted(valid_levels))}")
+        errors.append(
+            f"solution_risk must be one of: {', '.join(sorted(valid_levels))}"
+        )
 
     if not isinstance(summary, str) or not summary.strip():
         errors.append("summary must be a non-empty string")
@@ -508,8 +523,16 @@ def add_recommendation(
     if relevant_issues is not None:
         if not isinstance(relevant_issues, list):
             errors.append("relevant_issues must be a list")
-        elif not all(isinstance(item, dict) and "number" in item and "title" in item and "url" in item for item in relevant_issues):
-            errors.append("relevant_issues must be a list of dictionaries with keys: number, title, url")
+        elif not all(
+            isinstance(item, dict)
+            and "number" in item
+            and "title" in item
+            and "url" in item
+            for item in relevant_issues
+        ):
+            errors.append(
+                "relevant_issues must be a list of dictionaries with keys: number, title, url"
+            )
 
     if errors:
         return {"status": "error", "message": "Validation failed", "errors": errors}
@@ -533,6 +556,7 @@ def add_recommendation(
 
     # Generate review ID
     import uuid
+
     review_id = str(uuid.uuid4())
 
     # Create new recommendation with enhanced schema
@@ -608,7 +632,7 @@ def get_recommendation_schema() -> dict[str, Any]:
                     "priority_high",
                     "priority_medium",
                     "priority_low",
-                    "needs_more_info"
+                    "needs_more_info",
                 ],
                 "enum_descriptions": {
                     "close_completed": "Issue has been completed/fixed",
@@ -619,32 +643,32 @@ def get_recommendation_schema() -> dict[str, Any]:
                     "priority_high": "Critical issue needing immediate attention",
                     "priority_medium": "Important issue for next sprint/release",
                     "priority_low": "Valid issue but lower priority",
-                    "needs_more_info": "Requires additional details from reporter"
-                }
+                    "needs_more_info": "Requires additional details from reporter",
+                },
             },
             "confidence": {
                 "type": "string",
                 "required": True,
                 "description": "Confidence level in the recommendation",
-                "enum": ["low", "medium", "high"]
+                "enum": ["low", "medium", "high"],
             },
             "summary": {
                 "type": "string",
                 "required": True,
                 "description": "Brief one-line summary of the recommendation",
-                "example": "Close as duplicate of #123"
+                "example": "Close as duplicate of #123",
             },
             "rationale": {
                 "type": "string",
                 "required": True,
                 "description": "Short explanation for why this action is recommended",
-                "example": "Same root cause as #123, already has detailed discussion"
+                "example": "Same root cause as #123, already has detailed discussion",
             },
             "report": {
                 "type": "string",
                 "required": True,
                 "description": "Full markdown report with detailed analysis",
-                "example": "## Analysis\\n\\nThis issue appears to be..."
+                "example": "## Analysis\\n\\nThis issue appears to be...",
             },
             "analysis": {
                 "type": "object",
@@ -655,33 +679,33 @@ def get_recommendation_schema() -> dict[str, Any]:
                         "type": "string",
                         "required": True,
                         "description": "Impact on users/system",
-                        "enum": ["low", "medium", "high"]
+                        "enum": ["low", "medium", "high"],
                     },
                     "frequency": {
                         "type": "string",
                         "required": True,
                         "description": "How often the issue occurs",
-                        "enum": ["low", "medium", "high"]
+                        "enum": ["low", "medium", "high"],
                     },
                     "prevalence": {
                         "type": "string",
                         "required": True,
                         "description": "How many users are affected",
-                        "enum": ["low", "medium", "high"]
+                        "enum": ["low", "medium", "high"],
                     },
                     "solution_complexity": {
                         "type": "string",
                         "required": True,
                         "description": "Estimated development effort required",
-                        "enum": ["low", "medium", "high"]
+                        "enum": ["low", "medium", "high"],
                     },
                     "solution_risk": {
                         "type": "string",
                         "required": True,
                         "description": "Risk of implementing solution (breaking changes, etc.)",
-                        "enum": ["low", "medium", "high"]
-                    }
-                }
+                        "enum": ["low", "medium", "high"],
+                    },
+                },
             },
             "context": {
                 "type": "object",
@@ -692,25 +716,30 @@ def get_recommendation_schema() -> dict[str, Any]:
                         "type": "array",
                         "items": {"type": "string"},
                         "description": "Code packages/modules affected",
-                        "example": ["@jupyterlab/notebook", "@jupyterlab/cells"]
+                        "example": ["@jupyterlab/notebook", "@jupyterlab/cells"],
                     },
                     "affected_paths": {
                         "type": "array",
                         "items": {"type": "string"},
                         "description": "Paths affected (files/directories), optionally with line numbers using GitHub syntax (path:line or path:start-end)",
-                        "example": ["packages/notebook/src/widget.ts:42", "packages/cells/src/model.ts:123-145", "src/main.ts", "packages/notebook/"]
+                        "example": [
+                            "packages/notebook/src/widget.ts:42",
+                            "packages/cells/src/model.ts:123-145",
+                            "src/main.ts",
+                            "packages/notebook/",
+                        ],
                     },
                     "affected_components": {
                         "type": "array",
                         "items": {"type": "string"},
                         "description": "UI/system components affected",
-                        "example": ["NotebookPanel", "CodeCell"]
+                        "example": ["NotebookPanel", "CodeCell"],
                     },
                     "merge_with": {
                         "type": "array",
                         "items": {"type": "integer"},
                         "description": "Issue numbers to merge with (for close_merge action)",
-                        "example": [456]
+                        "example": [456],
                     },
                     "relevant_issues": {
                         "type": "array",
@@ -719,14 +748,20 @@ def get_recommendation_schema() -> dict[str, Any]:
                             "properties": {
                                 "number": {"type": "integer"},
                                 "title": {"type": "string"},
-                                "url": {"type": "string"}
+                                "url": {"type": "string"},
                             },
-                            "required": ["number", "title", "url"]
+                            "required": ["number", "title", "url"],
                         },
                         "description": "Relevant issues identified via cross-references and similar issues",
-                        "example": [{"number": 789, "title": "Related keyboard issue", "url": "https://github.com/owner/repo/issues/789"}]
-                    }
-                }
+                        "example": [
+                            {
+                                "number": 789,
+                                "title": "Related keyboard issue",
+                                "url": "https://github.com/owner/repo/issues/789",
+                            }
+                        ],
+                    },
+                },
             },
             "meta": {
                 "type": "object",
@@ -737,25 +772,25 @@ def get_recommendation_schema() -> dict[str, Any]:
                         "type": "string",
                         "description": "Who made the recommendation",
                         "default": "ai",
-                        "example": "claude-3.5"
+                        "example": "claude-3.5",
                     },
                     "timestamp": {
                         "type": "string",
                         "description": "ISO timestamp when recommendation was made",
-                        "format": "iso8601"
+                        "format": "iso8601",
                     },
                     "model_version": {
                         "type": "string",
                         "description": "Model version used for analysis",
-                        "example": "claude-3.5-sonnet-20241022"
+                        "example": "claude-3.5-sonnet-20241022",
                     },
                     "review_id": {
                         "type": "string",
                         "description": "Unique identifier for this review",
-                        "format": "uuid"
-                    }
-                }
-            }
+                        "format": "uuid",
+                    },
+                },
+            },
         },
         "example": {
             "recommendation": "close_merge",
@@ -768,22 +803,31 @@ def get_recommendation_schema() -> dict[str, Any]:
                 "frequency": "high",
                 "prevalence": "low",
                 "solution_complexity": "low",
-                "solution_risk": "low"
+                "solution_risk": "low",
             },
             "context": {
                 "affected_packages": ["@jupyterlab/notebook"],
-                "affected_paths": ["packages/notebook/src/widget.ts:142-156", "packages/notebook/src/panel.ts:89"],
+                "affected_paths": [
+                    "packages/notebook/src/widget.ts:142-156",
+                    "packages/notebook/src/panel.ts:89",
+                ],
                 "affected_components": ["NotebookPanel"],
                 "merge_with": [123],
-                "relevant_issues": [{"number": 789, "title": "Related keyboard issue", "url": "https://github.com/jupyterlab/jupyterlab/issues/789"}]
+                "relevant_issues": [
+                    {
+                        "number": 789,
+                        "title": "Related keyboard issue",
+                        "url": "https://github.com/jupyterlab/jupyterlab/issues/789",
+                    }
+                ],
             },
             "meta": {
                 "reviewer": "ai",
                 "timestamp": "2024-01-15T10:30:00Z",
                 "model_version": "claude-3.5-sonnet",
-                "review_id": "550e8400-e29b-41d4-a716-446655440000"
-            }
-        }
+                "review_id": "550e8400-e29b-41d4-a716-446655440000",
+            },
+        },
     }
 
 
@@ -915,10 +959,12 @@ def get_issue_by_difficulty(
         "engagement_score": best_issue_data["engagement_score"],
         "issue_emojis": issue.get("issue_total_emojis", 0),
         "conversation_emojis": issue.get("conversation_total_emojis", 0),
-        "solution_complexity": best_issue_data["latest_recommendation"].get("analysis", {}).get(
-            "solution_complexity"
-        ),
-        "solution_risk": best_issue_data["latest_recommendation"].get("analysis", {}).get("solution_risk"),
+        "solution_complexity": best_issue_data["latest_recommendation"]
+        .get("analysis", {})
+        .get("solution_complexity"),
+        "solution_risk": best_issue_data["latest_recommendation"]
+        .get("analysis", {})
+        .get("solution_risk"),
         "recommendation": best_issue_data["latest_recommendation"].get(
             "recommendation"
         ),
@@ -928,11 +974,14 @@ def get_issue_by_difficulty(
 
 
 def run_mcp_server(
-    host: str = "localhost", port: int = 8000, repo: str | None = None, config: dict[str, Any] | None = None
+    host: str = "localhost",
+    port: int = 8000,
+    repo: str | None = None,
+    config: dict[str, Any] | None = None,
 ) -> None:
     """Run the MCP server with specified configuration."""
     repo = _get_repo_name(repo)
-    
+
     # Store config globally for MCP tools to use
     global _mcp_config
     _mcp_config = config
@@ -950,7 +999,8 @@ def run_mcp_server(
         mcp.run()
 
 
-if __name__ == "__main__":
+def main():
+    """Main entry point for MCP server."""
     import argparse
 
     parser = argparse.ArgumentParser(
@@ -962,3 +1012,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     run_mcp_server(args.host, args.port, args.repo)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
 """Database operations using Qdrant vector database for the Rich Issue MCP system."""
 
-import json
 import math
 import time
-from pathlib import Path
-from typing import Any, Optional
-from urllib.parse import quote
+from typing import Any
 
 import numpy as np
 import requests
@@ -84,14 +81,15 @@ def get_collection_name(repo: str, config: dict[str, Any] | None = None) -> str:
     """Get the Qdrant collection name for a repository."""
     if config is None:
         from trigent.config import get_config
+
         config = get_config()
-    
+
     # Get prefix from config, default to empty string
     prefix = config.get("qdrant", {}).get("collection_prefix", "")
-    
+
     # Clean repo name for Qdrant collection names (letters, numbers, underscores)
-    clean_repo = repo.replace('/', '_').replace('-', '_').lower()
-    
+    clean_repo = repo.replace("/", "_").replace("-", "_").lower()
+
     # Return with or without prefix
     if prefix:
         return f"{prefix}_{clean_repo}"
@@ -138,7 +136,7 @@ def ensure_collection_exists(repo: str, config: dict[str, Any] | None = None) ->
     create_payload = {
         "vectors": {
             "size": EMBEDDING_DIM,
-            "distance": "Cosine"  # Using cosine similarity for normalized embeddings
+            "distance": "Cosine",  # Using cosine similarity for normalized embeddings
         }
     }
 
@@ -151,12 +149,13 @@ def ensure_collection_exists(repo: str, config: dict[str, Any] | None = None) ->
         )
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
-        raise QdrantConnectionError(f"Failed to create collection {collection_name}: {e}")
+        raise QdrantConnectionError(
+            f"Failed to create collection {collection_name}: {e}"
+        )
 
 
 def convert_numpy_types(obj: Any) -> Any:
     """Recursively convert NumPy types to Python native types for JSON serialization."""
-    import numpy as np
 
     if isinstance(obj, np.integer):
         return int(obj)
@@ -197,21 +196,23 @@ def issue_to_point(issue: dict[str, Any], point_id: int) -> dict[str, Any]:
     # Prepare payload (all fields except embedding)
     payload = convert_numpy_types(issue.copy())
     payload.pop("embedding", None)  # Remove embedding from payload
-    
+
     # Add special fields for filtering
     if "labels" in payload and isinstance(payload["labels"], list):
         # Store label names for filtering
         payload["label_names"] = [
-            label["name"] for label in payload["labels"] 
+            label["name"]
+            for label in payload["labels"]
             if isinstance(label, dict) and "name" in label
         ]
-    
+
     if "author" in payload and isinstance(payload["author"], dict):
         payload["author_login"] = payload["author"].get("login")
-    
+
     if "assignees" in payload and isinstance(payload["assignees"], list):
         payload["assignee_logins"] = [
-            assignee.get("login") for assignee in payload["assignees"] 
+            assignee.get("login")
+            for assignee in payload["assignees"]
             if isinstance(assignee, dict)
         ]
 
@@ -222,7 +223,9 @@ def issue_to_point(issue: dict[str, Any], point_id: int) -> dict[str, Any]:
     }
 
 
-def save_issues(repo: str, issues: list[dict[str, Any]], config: dict[str, Any] | None = None) -> None:
+def save_issues(
+    repo: str, issues: list[dict[str, Any]], config: dict[str, Any] | None = None
+) -> None:
     """Save issues to Qdrant collection, replacing all existing data."""
     # Validate repo parameter
     if (
@@ -256,7 +259,9 @@ def save_issues(repo: str, issues: list[dict[str, Any]], config: dict[str, Any] 
         time.sleep(0.5)
 
     except requests.exceptions.RequestException as e:
-        raise QdrantConnectionError(f"Failed to delete collection {collection_name}: {e}")
+        raise QdrantConnectionError(
+            f"Failed to delete collection {collection_name}: {e}"
+        )
 
     # Create collection
     ensure_collection_exists(repo)
@@ -297,7 +302,9 @@ def save_issues(repo: str, issues: list[dict[str, Any]], config: dict[str, Any] 
             )
 
 
-def load_issues(repo: str, config: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+def load_issues(
+    repo: str, config: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
     """Load all issues from Qdrant collection."""
     # Validate repo parameter
     if (
@@ -326,10 +333,10 @@ def load_issues(repo: str, config: dict[str, Any] | None = None) -> list[dict[st
             # Collection doesn't exist
             return []
         info_response.raise_for_status()
-        
+
         collection_info = info_response.json()["result"]
         total_points = collection_info.get("points_count", 0)
-        
+
         if total_points == 0:
             return []
 
@@ -337,7 +344,7 @@ def load_issues(repo: str, config: dict[str, Any] | None = None) -> list[dict[st
         issues = []
         offset = None
         limit = 100
-        
+
         while True:
             scroll_payload = {
                 "limit": limit,
@@ -354,19 +361,19 @@ def load_issues(repo: str, config: dict[str, Any] | None = None) -> list[dict[st
                 timeout=timeout,
             )
             response.raise_for_status()
-            
+
             result = response.json()["result"]
             points = result.get("points", [])
-            
+
             if not points:
                 break
-                
+
             for point in points:
                 # Reconstruct issue from point
                 issue = point["payload"].copy()
                 issue["embedding"] = point["vector"]
                 issues.append(issue)
-            
+
             # Check if there's a next page
             next_offset = result.get("next_page_offset")
             if next_offset is None:
@@ -382,7 +389,9 @@ def load_issues(repo: str, config: dict[str, Any] | None = None) -> list[dict[st
         raise QdrantConnectionError(f"Failed to load issues from {repo}: {e}")
 
 
-def upsert_issues(repo: str, issues: list[dict[str, Any]], config: dict[str, Any] | None = None) -> None:
+def upsert_issues(
+    repo: str, issues: list[dict[str, Any]], config: dict[str, Any] | None = None
+) -> None:
     """Upsert issues to Qdrant collection (update existing, insert new)."""
     # Validate repo parameter
     if (
@@ -410,7 +419,7 @@ def upsert_issues(repo: str, issues: list[dict[str, Any]], config: dict[str, Any
     existing_issues = load_issues(repo, config)
     issue_number_to_id = {}
     max_id = -1
-    
+
     for idx, issue in enumerate(existing_issues):
         issue_num = issue.get("number")
         if issue_num:
@@ -419,11 +428,11 @@ def upsert_issues(repo: str, issues: list[dict[str, Any]], config: dict[str, Any
 
     # Process each issue
     points_to_upsert = []
-    
+
     for issue in issues:
         issue_num = issue.get("number")
         if not issue_num:
-            print(f"Warning: Issue without number, skipping")
+            print("Warning: Issue without number, skipping")
             continue
 
         # Determine point ID
@@ -438,7 +447,7 @@ def upsert_issues(repo: str, issues: list[dict[str, Any]], config: dict[str, Any
         try:
             point = issue_to_point(issue, point_id)
             points_to_upsert.append(point)
-            
+
             # Log action
             comments_count = len(issue.get("comments", []))
             cross_refs_count = len(issue.get("cross_references", []))
@@ -474,7 +483,9 @@ def upsert_issues(repo: str, issues: list[dict[str, Any]], config: dict[str, Any
             )
 
 
-def delete_issue(repo: str, issue_number: int, config: dict[str, Any] | None = None) -> bool:
+def delete_issue(
+    repo: str, issue_number: int, config: dict[str, Any] | None = None
+) -> bool:
     """Delete a specific issue from the collection by issue number."""
     collection_name = get_collection_name(repo, config)
     headers = get_headers()
@@ -483,14 +494,7 @@ def delete_issue(repo: str, issue_number: int, config: dict[str, Any] | None = N
     try:
         # Find the point with this issue number
         search_payload = {
-            "filter": {
-                "must": [
-                    {
-                        "key": "number",
-                        "match": {"value": issue_number}
-                    }
-                ]
-            },
+            "filter": {"must": [{"key": "number", "match": {"value": issue_number}}]},
             "limit": 1,
             "with_payload": False,
         }
@@ -501,16 +505,16 @@ def delete_issue(repo: str, issue_number: int, config: dict[str, Any] | None = N
             headers=headers,
             timeout=timeout,
         )
-        
+
         if response.status_code == 404:
             return False  # Collection doesn't exist
-        
+
         response.raise_for_status()
         points = response.json()["result"]["points"]
-        
+
         if not points:
             return False  # Issue not found
-        
+
         point_id = points[0]["id"]
 
         # Delete the point
@@ -522,14 +526,16 @@ def delete_issue(repo: str, issue_number: int, config: dict[str, Any] | None = N
             timeout=timeout,
         )
         delete_response.raise_for_status()
-        
+
         return True
 
     except requests.exceptions.RequestException as e:
         raise QdrantConnectionError(f"Failed to delete issue {issue_number}: {e}")
 
 
-def delete_issues(repo: str, issue_numbers: list[int], config: dict[str, Any] | None = None) -> tuple[int, int]:
+def delete_issues(
+    repo: str, issue_numbers: list[int], config: dict[str, Any] | None = None
+) -> tuple[int, int]:
     """Delete multiple issues from the collection.
 
     Returns:
@@ -553,7 +559,9 @@ def delete_issues(repo: str, issue_numbers: list[int], config: dict[str, Any] | 
     return successful, failed
 
 
-def get_latest_updated_date_from_view(repo: str, config: dict[str, Any] | None = None) -> str | None:
+def get_latest_updated_date_from_view(
+    repo: str, config: dict[str, Any] | None = None
+) -> str | None:
     """Get the most recent updatedAt timestamp from the collection."""
     collection_name = get_collection_name(repo, config)
     headers = get_headers()
@@ -564,13 +572,13 @@ def get_latest_updated_date_from_view(repo: str, config: dict[str, Any] | None =
         issues = load_issues(repo, config)
         if not issues:
             return None
-        
+
         latest_date = None
         for issue in issues:
             updated_at = issue.get("updatedAt")
             if updated_at and (latest_date is None or updated_at > latest_date):
                 latest_date = updated_at
-        
+
         return latest_date
 
     except QdrantConnectionError:
@@ -630,12 +638,8 @@ def ensure_indexes(repo: str, config: dict[str, Any] | None = None) -> None:
 def documents_are_equal(doc1: dict[str, Any], doc2: dict[str, Any]) -> bool:
     """Compare two documents for equality, ignoring internal fields."""
     # Create copies without internal fields and pulled_date (which always changes)
-    clean_doc1 = {
-        k: v for k, v in doc1.items() if k != "pulled_date"
-    }
-    clean_doc2 = {
-        k: v for k, v in doc2.items() if k != "pulled_date"
-    }
+    clean_doc1 = {k: v for k, v in doc1.items() if k != "pulled_date"}
+    clean_doc2 = {k: v for k, v in doc2.items() if k != "pulled_date"}
 
     return clean_doc1 == clean_doc2
 

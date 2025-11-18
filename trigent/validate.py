@@ -4,7 +4,7 @@
 from collections import defaultdict
 from typing import Any
 
-from trigent.database import load_issues, delete_issues
+from trigent.database import delete_issues, load_issues
 
 
 def validate_required_fields(item: dict[str, Any]) -> list[str]:
@@ -365,13 +365,14 @@ def validate_database(repo: str, delete_invalid: bool = False) -> bool:
         )
         if confirm in ("yes", "y"):
             print(f"\n🗑️  Deleting {len(invalid_items)} invalid items...")
-            
+
             # Extract issue numbers from invalid items
             invalid_issue_numbers = [
-                item["number"] for item in invalid_items 
+                item["number"]
+                for item in invalid_items
                 if "number" in item and isinstance(item["number"], int)
             ]
-            
+
             if invalid_issue_numbers:
                 successful, failed = delete_issues(repo, invalid_issue_numbers)
                 print(f"✅ Deletion complete: {successful} deleted, {failed} failed")

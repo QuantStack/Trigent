@@ -152,34 +152,36 @@ def get_couchdb_config() -> dict[str, Any]:
     try:
         config = get_config()
         couchdb_config = config.get("couchdb", {})
-        
+
         # Apply defaults
         defaults = {
             "server_url": "http://localhost:5984",
             "username": None,
             "password": None,
-            "timeout": 30
+            "timeout": 30,
         }
-        
+
         # Merge with configured values
         result = defaults.copy()
         result.update(couchdb_config)
-        
+
         # Validate server_url
         server_url = result["server_url"]
         if not server_url.startswith(("http://", "https://")):
-            raise ValueError(f"CouchDB server_url must start with http:// or https://, got: {server_url}")
-        
+            raise ValueError(
+                f"CouchDB server_url must start with http:// or https://, got: {server_url}"
+            )
+
         # Remove trailing slash
         result["server_url"] = server_url.rstrip("/")
-        
+
         return result
-        
+
     except (FileNotFoundError, ValueError):
         # Return defaults if config not available
         return {
             "server_url": "http://localhost:5984",
             "username": None,
             "password": None,
-            "timeout": 30
+            "timeout": 30,
         }

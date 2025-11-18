@@ -11,13 +11,14 @@ import toml
 
 from trigent.database import load_issues
 from trigent.enrich import enrich_issue
-from trigent.config import get_config
 
 
-def get_last_updated_date(repo: str, config: dict[str, Any] | None = None) -> datetime | None:
+def get_last_updated_date(
+    repo: str, config: dict[str, Any] | None = None
+) -> datetime | None:
     """Get the most recent updated date from existing issues in database."""
     from trigent.database import get_latest_updated_date_from_view, load_issues
-    
+
     # Try the efficient view-based approach first
     try:
         latest_updated_str = get_latest_updated_date_from_view(repo)
@@ -25,7 +26,7 @@ def get_last_updated_date(repo: str, config: dict[str, Any] | None = None) -> da
             return datetime.fromisoformat(latest_updated_str.replace("Z", "+00:00"))
     except Exception as e:
         print(f"⚠️  View-based query failed: {e}")
-    
+
     # Fallback to loading all issues (slower but reliable)
     try:
         existing_issues = load_issues(repo)
@@ -47,7 +48,9 @@ def get_last_updated_date(repo: str, config: dict[str, Any] | None = None) -> da
         return None
 
 
-def get_existing_issue_numbers(repo: str, config: dict[str, Any] | None = None) -> set[int]:
+def get_existing_issue_numbers(
+    repo: str, config: dict[str, Any] | None = None
+) -> set[int]:
     """Get set of existing issue numbers in database to avoid re-pulling."""
     try:
         existing_issues = load_issues(repo, config)
@@ -122,10 +125,14 @@ def make_rest_request(
     for attempt in range(max_retries):
         try:
             response = requests.get(url, headers=headers, params=params, timeout=30)
-        except (requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+        except (
+            requests.exceptions.ConnectTimeout,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
+        ) as e:
             print(f"⚠️  Network error on attempt {attempt + 1}/{max_retries}: {e}")
             if attempt < max_retries - 1:
-                wait_time = 2 ** attempt  # Exponential backoff: 1, 2, 4, 8 seconds
+                wait_time = 2**attempt  # Exponential backoff: 1, 2, 4, 8 seconds
                 print(f"🔄 Retrying in {wait_time} seconds...")
                 time.sleep(wait_time)
                 continue
@@ -135,7 +142,7 @@ def make_rest_request(
         except requests.exceptions.RequestException as e:
             print(f"⚠️  Request error on attempt {attempt + 1}/{max_retries}: {e}")
             if attempt < max_retries - 1:
-                wait_time = 2 ** attempt
+                wait_time = 2**attempt
                 print(f"🔄 Retrying in {wait_time} seconds...")
                 time.sleep(wait_time)
                 continue
@@ -571,8 +578,12 @@ def fetch_all_comments(repo: str, issue_number: int) -> list[dict[str, Any]] | N
         except KeyboardInterrupt:
             print(f"🛑 Interrupted while fetching comments for issue #{issue_number}")
             raise
-        except (requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError,
-                requests.exceptions.Timeout, requests.exceptions.RequestException) as e:
+        except (
+            requests.exceptions.ConnectTimeout,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
+            requests.exceptions.RequestException,
+        ) as e:
             print(f"❌ Network error fetching comments for issue #{issue_number}: {e}")
             print(f"⚠️  Skipping issue #{issue_number} - refusing incomplete data")
             return None  # Return None to indicate failure - issue will be skipped
@@ -629,8 +640,12 @@ def fetch_all_timeline_cross_references(
         except KeyboardInterrupt:
             print(f"🛑 Interrupted while fetching timeline for issue #{issue_number}")
             raise
-        except (requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError,
-                requests.exceptions.Timeout, requests.exceptions.RequestException) as e:
+        except (
+            requests.exceptions.ConnectTimeout,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
+            requests.exceptions.RequestException,
+        ) as e:
             print(f"❌ Network error fetching timeline for issue #{issue_number}: {e}")
             print(f"⚠️  Skipping issue #{issue_number} - refusing incomplete data")
             return None  # Return None to indicate failure - issue will be skipped
@@ -673,7 +688,9 @@ def fetch_all_timeline_cross_references(
     return all_cross_references
 
 
-def process_and_save_issue(repo: str, issue: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any] | None:
+def process_and_save_issue(
+    repo: str, issue: dict[str, Any], config: dict[str, Any] | None = None
+) -> dict[str, Any] | None:
     """Process a single issue by fetching comments and cross-references, enriching, then save to database.
 
     Returns:
@@ -724,15 +741,17 @@ def process_and_save_issue(repo: str, issue: dict[str, Any], config: dict[str, A
     try:
         if config is None:
             raise ValueError("Config must be provided to process_and_save_issue")
-            
+
         api_key = config.get("api", {}).get("mistral_api_key")
         model = "mistral-embed"
-        
+
         if api_key:
             print(f"  🧠 Enriching issue #{issue_number} with embeddings...")
             enriched_issue = enrich_issue(processed_issue, api_key, model)
         else:
-            print(f"  ⚠️  No Mistral API key found, skipping enrichment for issue #{issue_number}")
+            print(
+                f"  ⚠️  No Mistral API key found, skipping enrichment for issue #{issue_number}"
+            )
             enriched_issue = processed_issue
             enriched_issue["embedding"] = None
             enriched_issue["summary"] = None
@@ -780,7 +799,9 @@ def fetch_specific_issue(repo: str, issue_number: int) -> dict[str, Any] | None:
     return response.json()
 
 
-def fetch_specific_issues(repo: str, issue_numbers: list[int], config: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+def fetch_specific_issues(
+    repo: str, issue_numbers: list[int], config: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
     """Fetch specific issues by number and process them."""
     print(
         f"🎯 Fetching {len(issue_numbers)} specific issues: {', '.join(map(str, issue_numbers))}"
@@ -812,13 +833,13 @@ def fetch_items_with_rest_since(
     config: dict[str, Any] | None = None,
 ) -> tuple[int, int, int]:
     """Fetch items using REST API with since parameter for efficient updates.
-    
+
     Args:
         repo: GitHub repository in owner/repo format
         item_type: Either 'issues' or 'pull_requests'
         include_closed: Whether to include closed items
         since: Datetime to fetch items updated since
-        
+
     Returns:
         Tuple of (processed_count, comments_count, cross_refs_count)
     """
@@ -831,7 +852,9 @@ def fetch_items_with_rest_since(
 
     # Convert since datetime to ISO string format required by GitHub API
     since_str = since.isoformat().replace("+00:00", "Z")
-    print(f"🕐 Fetching {type_name} updated since: {since.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+    print(
+        f"🕐 Fetching {type_name} updated since: {since.strftime('%Y-%m-%d %H:%M:%S UTC')}"
+    )
 
     state = "all" if include_closed else "open"
     page = 1
@@ -848,7 +871,7 @@ def fetch_items_with_rest_since(
             "direction": "asc",
             "since": since_str,
             "per_page": 100,
-            "page": page
+            "page": page,
         }
 
         try:
@@ -891,7 +914,8 @@ def fetch_items_with_rest_since(
                     for label in item.get("labels", [])
                 ],
                 "assignees": [
-                    {"login": assignee["login"]} for assignee in item.get("assignees", [])
+                    {"login": assignee["login"]}
+                    for assignee in item.get("assignees", [])
                 ],
                 "reactionGroups": [],  # Not available in REST API
                 "item_type": "issue",
@@ -915,7 +939,8 @@ def fetch_items_with_rest_since(
                     for label in item.get("labels", [])
                 ],
                 "assignees": [
-                    {"login": assignee["login"]} for assignee in item.get("assignees", [])
+                    {"login": assignee["login"]}
+                    for assignee in item.get("assignees", [])
                 ],
                 "reactionGroups": [],  # Not available in REST API
                 "item_type": "pull_request",
@@ -935,7 +960,9 @@ def fetch_items_with_rest_since(
 
         issues_count = len(issues_from_api)
         prs_count = len(prs_from_api)
-        print(f"📄 REST API fetched page {page}: {issues_count} issues, {prs_count} PRs ({len(page_items)} total)")
+        print(
+            f"📄 REST API fetched page {page}: {issues_count} issues, {prs_count} PRs ({len(page_items)} total)"
+        )
 
         if page_items:
             first_num = page_items[0]["number"]
@@ -943,7 +970,9 @@ def fetch_items_with_rest_since(
             print(f"  🔢 Item range on this page: #{first_num} to #{last_num}")
 
         # Process the items (fetch comments and cross-references)
-        print(f"🔧 Processing page {page} ({len(page_items)} items: {issues_count} issues, {prs_count} PRs)...")
+        print(
+            f"🔧 Processing page {page} ({len(page_items)} items: {issues_count} issues, {prs_count} PRs)..."
+        )
         processed_items = process_page_issues(repo, page_items, config)
 
         # Count stats
@@ -954,7 +983,9 @@ def fetch_items_with_rest_since(
         total_comments += page_comments
         total_cross_refs += page_cross_refs
 
-        print(f"  📊 Page stats: {page_comments} comments, {page_cross_refs} cross-refs")
+        print(
+            f"  📊 Page stats: {page_comments} comments, {page_cross_refs} cross-refs"
+        )
 
         # Check if there are more pages by looking at the Link header
         link_header = response.headers.get("Link", "")
@@ -1192,13 +1223,17 @@ def fetch_issues(
             # Add 1-week overlap before last updatedAt to ensure coverage
             if since_date:
                 since_date = since_date - timedelta(weeks=1)
-                print("📅 Added 1-week overlap before last updated date for comprehensive coverage")
+                print(
+                    "📅 Added 1-week overlap before last updated date for comprehensive coverage"
+                )
 
         if since_date:
             print("🚀 UPDATE mode: Using REST API with since parameter")
 
             # GitHub Issues API returns both issues and PRs, so fetch once
-            print("\n🔍 Fetching issues and pull requests together (Issues API returns both)...")
+            print(
+                "\n🔍 Fetching issues and pull requests together (Issues API returns both)..."
+            )
             items_processed = fetch_items_with_rest_since(
                 repo, "issues", include_closed, since_date, config
             )
@@ -1206,7 +1241,9 @@ def fetch_issues(
             total_comments += items_processed[1]
             total_cross_refs += items_processed[2]
         else:
-            print("⚠️  UPDATE mode: No since date available, falling back to GraphQL (fetch all)")
+            print(
+                "⚠️  UPDATE mode: No since date available, falling back to GraphQL (fetch all)"
+            )
             # Fall back to GraphQL pagination without existing_numbers filtering for update mode
             if item_types in ("issues", "both"):
                 print("\n🔍 Fetching issues...")
@@ -1252,7 +1289,13 @@ def fetch_issues(
         if item_types in ("prs", "both"):
             print("\n🔍 Fetching pull requests...")
             prs_processed = fetch_items_with_pagination(
-                repo, "pull_requests", include_closed, filter_existing, coverage, mode, config
+                repo,
+                "pull_requests",
+                include_closed,
+                filter_existing,
+                coverage,
+                mode,
+                config,
             )
             total_processed += prs_processed[0]
             total_comments += prs_processed[1]

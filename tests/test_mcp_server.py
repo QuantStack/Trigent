@@ -20,10 +20,9 @@ class TestMCPServer:
         
         # Start MCP server in subprocess with HTTP transport
         cmd = [
-            "python", "-m", "trigent.mcp_server",
+            "python", "-m", "trigent", "serve", test_repo,
             "--host", "localhost",
-            "--port", "8001",  # Use different port to avoid conflicts
-            "--repo", test_repo
+            "--port", "8001"  # Use different port to avoid conflicts
         ]
         
         print(f"🚀 Starting MCP server subprocess: {' '.join(cmd)}")
@@ -95,10 +94,9 @@ class TestMCPServer:
         # Pass config via environment if needed
         
         cmd = [
-            "python", "-m", "trigent.mcp_server",
+            "python", "-m", "trigent", "serve", test_repo,
             "--host", "localhost",
-            "--port", str(port),
-            "--repo", test_repo
+            "--port", str(port)
         ]
         
         print(f"🚀 Starting MCP server on port {port}: {' '.join(cmd)}")
@@ -275,8 +273,8 @@ class TestMCPServer:
 
     def test_mcp_server_config_flow(self, test_repo, test_config, skip_if_no_config):
         """Test that config flows properly through MCP server startup."""
-        from trigent.mcp_server import run_mcp_server, _mcp_config
-        import trigent.mcp_server as mcp_module
+        from trigent.serve.mcp_server import run_mcp_server, _mcp_config
+        import trigent.serve.mcp_server as mcp_module
         
         # Ensure config starts as None
         mcp_module._mcp_config = None
@@ -290,9 +288,9 @@ class TestMCPServer:
         
         try:
             # Patch the mcp.run method to avoid actual server startup
-            import trigent.mcp_server
-            original_run = trigent.mcp_server.mcp.run
-            trigent.mcp_server.mcp.run = mock_server_run
+            import trigent.serve.mcp_server
+            original_run = trigent.serve.mcp_server.mcp.run
+            trigent.serve.mcp_server.mcp.run = mock_server_run
             
             # Test config setting during server startup
             run_mcp_server(host="localhost", port=8002, repo=test_repo, config=test_config)
@@ -306,7 +304,7 @@ class TestMCPServer:
         finally:
             # Restore original method and clean up
             if original_run:
-                trigent.mcp_server.mcp.run = original_run
+                trigent.serve.mcp_server.mcp.run = original_run
             mcp_module._mcp_config = None
 
     def test_mcp_server_tools_via_api(self, test_repo, test_config, populated_collection, skip_if_no_config):
@@ -324,10 +322,9 @@ class TestMCPServer:
         
         # Start MCP server
         cmd = [
-            "python", "-m", "trigent.mcp_server",
+            "python", "-m", "trigent", "serve", test_repo,
             "--host", "localhost",
-            "--port", str(port),
-            "--repo", test_repo
+            "--port", str(port)
         ]
         
         print(f"🚀 Starting MCP server on port {port}: {' '.join(cmd)}")
