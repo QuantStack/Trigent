@@ -15,6 +15,16 @@ from trigent.database import (
 )
 
 
+def pytest_addoption(parser):
+    """Add custom command line options for pytest."""
+    parser.addoption(
+        "--keep-test-db",
+        action="store_true",
+        default=False,
+        help="Keep test database collections after tests complete (useful for debugging)"
+    )
+
+
 @pytest.fixture(scope="session")
 def project_root() -> Path:
     """Get the project root directory."""
@@ -49,6 +59,12 @@ def skip_if_no_qdrant(qdrant_available):
 
 
 @pytest.fixture(scope="session")
+def keep_test_db(request):
+    """Get the --keep-test-db flag value."""
+    return request.config.getoption("--keep-test-db")
+
+
+@pytest.fixture(scope="session")
 def config_available(project_root: Path) -> bool:
     """Check if config.toml exists."""
     return (project_root / "config.toml").exists()
@@ -73,7 +89,7 @@ def test_config(test_repo: str) -> dict[str, Any]:
 
 
 @pytest.fixture(scope="session")
-def clean_collection(test_repo: str, test_config: dict[str, Any], skip_if_no_qdrant) -> Generator[str, None, None]:
+def clean_collection(test_repo: str, test_config: dict[str, Any], skip_if_no_qdrant, keep_test_db) -> Generator[str, None, None]:
     """Provide a clean Qdrant collection for testing (session-scoped)."""
     collection_name = get_collection_name(test_repo, test_config)
     
@@ -91,16 +107,20 @@ def clean_collection(test_repo: str, test_config: dict[str, Any], skip_if_no_qdr
     
     yield collection_name
     
-    # Clean up after session
-    try:
-        requests.delete(
-            get_qdrant_url(f"collections/{collection_name}"),
-            headers=get_headers(),
-            timeout=get_qdrant_config()["timeout"],
-        )
-        print(f"🧹 Cleaned up collection {collection_name} after test session")
-    except:
-        pass
+    # Clean up after session (only if not keeping test db)
+    if not keep_test_db:
+        try:
+            requests.delete(
+                get_qdrant_url(f"collections/{collection_name}"),
+                headers=get_headers(),
+                timeout=get_qdrant_config()["timeout"],
+            )
+            print(f"🧹 Cleaned up collection {collection_name} after test session")
+        except:
+            pass
+    else:
+        print(f"🔍 Keeping test collection: {collection_name}")
+        print(f"   Use: trigent browse {test_repo} --prefix test")
 
 
 @pytest.fixture(scope="session")

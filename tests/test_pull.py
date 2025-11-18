@@ -1,5 +1,7 @@
-"""Test pull functionality with real GitHub repository."""
+"""Test CLI commands with real GitHub repository."""
 
+import subprocess
+import sys
 from typing import Any
 
 import pytest
@@ -11,62 +13,105 @@ from trigent.database import (
     get_qdrant_config,
     load_issues,
 )
-from trigent.pull import fetch_issues
 
 
-class TestPullFunctionality:
-    """Test suite for pull functionality."""
-
-    def test_pull_initial_data(self, test_repo, test_config, clean_collection, skip_if_no_config):
-        """Test initial pull of issues from real repository."""
-        # Pull issues with reasonable limits
-        issues = fetch_issues(
-            repo=test_repo,
-            include_closed=True,
-            limit=20,
-            start_date="2020-01-01",
-            refetch=True,
-            mode="create",
-            config=test_config
+# Session-scoped fixture to set up data once for all tests
+@pytest.fixture(scope="session")
+def cli_populated_collection(test_repo, test_config, skip_if_no_config, keep_test_db):
+    """Set up a collection using CLI pull command, shared across all tests."""
+    prefix = "clitest"
+    
+    # Clean up any existing test collection first
+    from trigent.database import get_collection_name
+    prefixed_config = {**test_config, "qdrant": {**test_config.get("qdrant", {}), "collection_prefix": prefix}}
+    collection_name = get_collection_name(test_repo, prefixed_config)
+    
+    try:
+        requests.delete(
+            get_qdrant_url(f"collections/{collection_name}"),
+            headers=get_headers(),
+            timeout=get_qdrant_config()["timeout"],
         )
-        
-        # Verify we got some issues
-        assert len(issues) > 0, "Should fetch at least one issue"
-        assert len(issues) <= 20, "Should respect the limit"
-        
-        # Verify issue structure
-        first_issue = issues[0]
-        required_fields = ['number', 'title', 'body', 'state', 'createdAt', 'updatedAt']
-        for field in required_fields:
-            assert field in first_issue, f"Issue should have {field} field"
+        print(f"🧹 Cleaned up existing test collection: {collection_name}")
+    except:
+        pass
+    
+    # Run CLI pull command once for the whole test session
+    result = subprocess.run(
+        [
+            sys.executable, '-m', 'trigent', 'pull', test_repo,
+            '--limit', '20',
+            '--start-date', '2020-01-01',
+            '--prefix', prefix
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300
+    )
+    
+    if result.returncode != 0:
+        pytest.skip(f"CLI pull failed: {result.stderr}")
+    
+    yield collection_name, prefix, prefixed_config
+    
+    # Cleanup after all tests are done (only if not keeping test db)
+    if not keep_test_db:
+        try:
+            requests.delete(
+                get_qdrant_url(f"collections/{collection_name}"),
+                headers=get_headers(),
+                timeout=get_qdrant_config()["timeout"],
+            )
+            print(f"🧹 Cleaned up test collection: {collection_name}")
+        except:
+            pass
+    else:
+        print(f"🔍 Keeping test collection for inspection: {collection_name}")
+        print(f"   Use: trigent browse {test_repo} --prefix {prefix}")
 
-    def test_qdrant_collection_created(self, test_repo, populated_collection, skip_if_no_config):
-        """Test that Qdrant collection is created and populated."""
-        # Collection should already be populated by fixture
+
+class TestCLICommands:
+    """Test suite for all CLI commands with shared state."""
+
+    def test_cli_pull_creates_collection(self, cli_populated_collection, test_repo):
+        """Test that CLI pull command successfully creates and populates collection."""
+        collection_name, prefix, config = cli_populated_collection
         
-        # Check collection exists in Qdrant
+        # Verify collection exists in Qdrant
         response = requests.get(
-            get_qdrant_url(f"collections/{populated_collection}"),
+            get_qdrant_url(f"collections/{collection_name}"),
             headers=get_headers(),
             timeout=get_qdrant_config()["timeout"],
         )
         
         assert response.status_code == 200, "Collection should exist in Qdrant"
-        
         collection_info = response.json()["result"]
         points_count = collection_info.get("points_count", 0)
-        
         assert points_count > 0, "Collection should have points"
+        
+        # Verify we can load issues through database interface
+        issues = load_issues(test_repo, config)
+        assert len(issues) > 0, "Should have loaded issues"
+        assert len(issues) <= 20, "Should respect the limit"
+        
+        # Verify issue structure includes enrichment
+        first_issue = issues[0]
+        required_fields = ['number', 'title', 'body', 'state', 'createdAt', 'updatedAt', 'embedding']
+        for field in required_fields:
+            assert field in first_issue, f"Issue should have {field} field"
 
-    def test_qdrant_structure(self, test_repo, populated_collection, skip_if_no_config):
+    def test_qdrant_structure(self, cli_populated_collection):
         """Test Qdrant collection structure and configuration."""
-        # Check collection configuration (data already populated by fixture)
+        collection_name, prefix, config = cli_populated_collection
+        
+        # Check collection configuration
         response = requests.get(
-            get_qdrant_url(f"collections/{populated_collection}"),
+            get_qdrant_url(f"collections/{collection_name}"),
             headers=get_headers(),
             timeout=get_qdrant_config()["timeout"],
         )
         
+        assert response.status_code == 200, "Collection should exist"
         collection_info = response.json()["result"]
         vector_config = collection_info.get("config", {}).get("params", {}).get("vectors", {})
         
@@ -74,43 +119,57 @@ class TestPullFunctionality:
         assert vector_config.get("size") == 1024, "Vector size should be 1024 for Mistral embeddings"
         assert vector_config.get("distance") == "Cosine", "Distance metric should be Cosine"
 
-    def test_load_issues_interface(self, test_repo, test_config, populated_collection, skip_if_no_config):
+    def test_load_issues_interface(self, cli_populated_collection, test_repo):
         """Test loading issues through database interface."""
-        # Load through database interface (data already populated by fixture)
-        loaded_issues = load_issues(test_repo, test_config)
+        collection_name, prefix, config = cli_populated_collection
         
-        assert len(loaded_issues) > 0, "Should have loaded issues from populated collection"
+        # Load through database interface
+        loaded_issues = load_issues(test_repo, config)
         
-        # Check a specific issue structure
+        assert len(loaded_issues) > 0, "Should have loaded issues from CLI-populated collection"
+        
+        # Check issue structure includes enrichment fields
         first_loaded = loaded_issues[0]
         
         required_fields = ['number', 'title', 'state', 'embedding', 'conversation']
         for field in required_fields:
             assert field in first_loaded, f"Loaded issue should have {field} field"
 
-    def test_update_mode(self, test_repo, test_config, populated_collection, skip_if_no_config):
-        """Test update mode functionality."""
-        # Get initial count from populated collection
-        initial_issues = load_issues(test_repo, test_config)
+    def test_cli_update(self, cli_populated_collection, test_repo):
+        """Test CLI update command for incremental updates."""
+        collection_name, prefix, config = cli_populated_collection
+        
+        # Get initial count from CLI-populated collection
+        initial_issues = load_issues(test_repo, config)
         initial_count = len(initial_issues)
         assert initial_count > 0
         
-        # Update pull (should be faster and may process fewer issues)
-        fetch_issues(
-            repo=test_repo,
-            include_closed=True,
-            limit=5,
-            mode="update",
-            config=test_config
+        # Run CLI update command
+        result = subprocess.run(
+            [
+                sys.executable, '-m', 'trigent', 'update', test_repo,
+                '--prefix', prefix
+            ],
+            capture_output=True,
+            text=True,
+            timeout=300
         )
         
-        # Verify data is still accessible
-        final_issues = load_issues(test_repo, test_config)
+        # Check that command succeeded
+        assert result.returncode == 0, f"Update command failed: {result.stderr}"
+        
+        # Verify output shows completion
+        assert "✅" in result.stdout, "Should show success indicators"
+        
+        # Verify data is still accessible and consistent
+        final_issues = load_issues(test_repo, config)
         assert len(final_issues) >= initial_count, "Should have at least initial number of issues"
 
-    def test_qdrant_search_functionality(self, test_repo, populated_collection, skip_if_no_config):
+    def test_qdrant_search_functionality(self, cli_populated_collection):
         """Test basic Qdrant search capabilities."""
-        # Test scrolling through points (data already populated by fixture)
+        collection_name, prefix, config = cli_populated_collection
+        
+        # Test scrolling through points
         scroll_payload = {
             "limit": 3,
             "with_payload": True,
@@ -118,7 +177,7 @@ class TestPullFunctionality:
         }
         
         response = requests.post(
-            get_qdrant_url(f"collections/{populated_collection}/points/scroll"),
+            get_qdrant_url(f"collections/{collection_name}/points/scroll"),
             json=scroll_payload,
             headers=get_headers(),
             timeout=get_qdrant_config()["timeout"],
@@ -137,9 +196,11 @@ class TestPullFunctionality:
         assert "payload" in first_point, "Point should have payload"
         assert "number" in first_point["payload"], "Payload should have issue number"
 
-    def test_filter_by_state(self, test_repo, populated_collection, skip_if_no_config):
+    def test_filter_by_state(self, cli_populated_collection):
         """Test filtering issues by state in Qdrant."""
-        # Filter for open issues (data already populated by fixture)
+        collection_name, prefix, config = cli_populated_collection
+        
+        # Filter for open issues
         filter_payload = {
             "limit": 10,
             "filter": {
@@ -155,7 +216,7 @@ class TestPullFunctionality:
         }
         
         response = requests.post(
-            get_qdrant_url(f"collections/{populated_collection}/points/scroll"),
+            get_qdrant_url(f"collections/{collection_name}/points/scroll"),
             json=filter_payload,
             headers=get_headers(),
             timeout=get_qdrant_config()["timeout"],

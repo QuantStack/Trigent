@@ -45,35 +45,26 @@ The system consists of several Python modules under `trigent/`:
 # Install the package
 pip install -e .
 
-# 1. Pull raw issue data (intelligent paging from 2025-01-01)
+# 1. Initial repository setup (pulls data and enriches it)
 trigent pull jupyterlab/jupyterlab --start-date 2025-01-01
 
-# 1a. Incremental update (only new/updated issues since last fetch)
-trigent pull jupyterlab/jupyterlab
+# 2. Keep repository up to date (incremental updates)
+trigent update jupyterlab/jupyterlab
 
-# 1b. Force full refetch from start date
-trigent pull jupyterlab/jupyterlab --refetch
+# 3. Start MCP server for AI agent access
+trigent serve jupyterlab/jupyterlab
 
-# 2. Enrich data with embeddings and metrics
-trigent enrich jupyterlab/jupyterlab
+# 4. Browse issues interactively
+trigent browse jupyterlab/jupyterlab
 
-# 3. Start MCP server for database access
-trigent mcp jupyterlab/jupyterlab
-
-# 4. Browse database interactively
-trigent tui jupyterlab/jupyterlab
-
-# 5. Visualize issue clusters
-trigent visualize jupyterlab/jupyterlab
+# 5. Export data for analysis
+trigent export jupyterlab/jupyterlab --csv --viz
 
 # 6. Validate database integrity
 trigent validate jupyterlab/jupyterlab
 
-# 7. Clean specific repository data
+# 7. Clean repository data
 trigent clean jupyterlab/jupyterlab
-
-# 8. Clean all repository data
-trigent clean
 ```
 
 ## Development Commands
@@ -96,11 +87,13 @@ ruff check trigent/ && ruff format trigent/ && mypy trigent/
 
 ## Key Files
 
-- `trigent/cli.py`: Main CLI entry point with all subcommands
+- `trigent/cli.py`: Main CLI entry point with simplified commands
 - `trigent/pull.py`: Python module for fetching raw issues from GitHub
 - `trigent/enrich.py`: Python enrichment pipeline with embeddings/metrics
 - `trigent/mcp_server.py`: FastMCP server for database access
+- `trigent/database.py`: Qdrant vector database operations
 - `trigent/config.py`: Configuration management and API key handling
+- `config.toml`: User configuration file (API keys, Qdrant settings)
 - `pyproject.toml`: Project configuration
 
 ## Dependencies
@@ -123,7 +116,7 @@ ruff check trigent/ && ruff format trigent/ && mypy trigent/
 - **Issue Merging**: Smart merge logic updates existing issues while preserving all data integrity  
 - **Enriched Data**: Pandas-based processing adds embeddings and quartiles (UMAP removed)
 - **MCP Server**: FastMCP provides database access tools for AI agents
-- **CLI Integration**: Single `trigent` command orchestrates entire pipeline with direct Python imports
+- **Simplified CLI**: Streamlined commands that combine operations (e.g., `pull` does fetch + enrich)
 - **Direct Integration**: No subprocess calls between internal modules - all use direct Python imports
 
 ## Project Structure
