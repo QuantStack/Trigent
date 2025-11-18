@@ -3,17 +3,17 @@
 
 import argparse
 
-from rich_issue_mcp.config import get_config
-from rich_issue_mcp.database import clear_all_recommendations, load_issues
-from rich_issue_mcp.enrich import (
+from trigent.config import get_config
+from trigent.database import clear_all_recommendations, load_issues
+from trigent.enrich import (
     add_k4_distances,
     add_quartile_columns,
     print_stats,
 )
-from rich_issue_mcp.mcp_server import run_mcp_server
-from rich_issue_mcp.pull import fetch_issues
-from rich_issue_mcp.validate import validate_database
-from rich_issue_mcp.visualize import visualize_issues
+from trigent.mcp_server import run_mcp_server
+from trigent.pull import fetch_issues
+from trigent.validate import validate_database
+from trigent.visualize import visualize_issues
 
 
 def cmd_pull(args, config) -> None:
@@ -49,7 +49,7 @@ def cmd_enrich(args, config) -> None:
 
     # Apply post-processing using individual upserts to preserve existing data
     print("💾 Saving post-processed issues using individual upserts...")
-    from rich_issue_mcp.database import upsert_issues
+    from trigent.database import upsert_issues
 
     for i, issue in enumerate(enriched):
         if (i + 1) % 100 == 0:
@@ -74,7 +74,7 @@ def cmd_visualize(args, config) -> None:
 
 def cmd_clean(args, config) -> None:
     """Execute clean command to remove Qdrant collections."""
-    from rich_issue_mcp.database import (
+    from trigent.database import (
         get_collection_name,
         get_headers,
         get_qdrant_config,
@@ -171,7 +171,7 @@ def cmd_validate(args, config) -> None:
 
 def cmd_tui(args, config) -> None:
     """Execute TUI command to browse database interactively."""
-    from rich_issue_mcp.tui import run_tui
+    from trigent.tui import run_tui
 
     try:
         run_tui(args.repo)

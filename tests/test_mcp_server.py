@@ -20,7 +20,7 @@ class TestMCPServer:
         
         # Start MCP server in subprocess with HTTP transport
         cmd = [
-            "python", "-m", "rich_issue_mcp.mcp_server",
+            "python", "-m", "trigent.mcp_server",
             "--host", "localhost",
             "--port", "8001",  # Use different port to avoid conflicts
             "--repo", test_repo
@@ -95,7 +95,7 @@ class TestMCPServer:
         # Pass config via environment if needed
         
         cmd = [
-            "python", "-m", "rich_issue_mcp.mcp_server",
+            "python", "-m", "trigent.mcp_server",
             "--host", "localhost",
             "--port", str(port),
             "--repo", test_repo
@@ -275,8 +275,8 @@ class TestMCPServer:
 
     def test_mcp_server_config_flow(self, test_repo, test_config, skip_if_no_config):
         """Test that config flows properly through MCP server startup."""
-        from rich_issue_mcp.mcp_server import run_mcp_server, _mcp_config
-        import rich_issue_mcp.mcp_server as mcp_module
+        from trigent.mcp_server import run_mcp_server, _mcp_config
+        import trigent.mcp_server as mcp_module
         
         # Ensure config starts as None
         mcp_module._mcp_config = None
@@ -290,9 +290,9 @@ class TestMCPServer:
         
         try:
             # Patch the mcp.run method to avoid actual server startup
-            import rich_issue_mcp.mcp_server
-            original_run = rich_issue_mcp.mcp_server.mcp.run
-            rich_issue_mcp.mcp_server.mcp.run = mock_server_run
+            import trigent.mcp_server
+            original_run = trigent.mcp_server.mcp.run
+            trigent.mcp_server.mcp.run = mock_server_run
             
             # Test config setting during server startup
             run_mcp_server(host="localhost", port=8002, repo=test_repo, config=test_config)
@@ -306,7 +306,7 @@ class TestMCPServer:
         finally:
             # Restore original method and clean up
             if original_run:
-                rich_issue_mcp.mcp_server.mcp.run = original_run
+                trigent.mcp_server.mcp.run = original_run
             mcp_module._mcp_config = None
 
     def test_mcp_server_tools_via_api(self, test_repo, test_config, populated_collection, skip_if_no_config):
@@ -324,13 +324,13 @@ class TestMCPServer:
         
         # Start MCP server
         cmd = [
-            "python", "-m", "rich_issue_mcp.mcp_server",
+            "python", "-m", "trigent.mcp_server",
             "--host", "localhost",
             "--port", str(port),
             "--repo", test_repo
         ]
         
-        print(f"🚀 Starting MCP server on port {port}")
+        print(f"🚀 Starting MCP server on port {port}: {' '.join(cmd)}")
         
         process = subprocess.Popen(
             cmd,
@@ -340,23 +340,45 @@ class TestMCPServer:
         )
         
         try:
-            # Wait for server to start
+            # Wait for server to start with better debugging
             server_ready = False
-            for i in range(30):
+            for i in range(60):  # Increase timeout to 30 seconds
                 time.sleep(0.5)
+                
+                # Check if process is still alive
                 if process.poll() is not None:
                     stdout, stderr = process.communicate()
-                    raise RuntimeError(f"Server exited: {stderr}")
+                    print(f"❌ Server process died after {i*0.5:.1f}s")
+                    print(f"   Exit code: {process.returncode}")
+                    print(f"   STDOUT: {stdout[:500]}")
+                    print(f"   STDERR: {stderr[:500]}")
+                    raise RuntimeError(f"Server exited with code {process.returncode}: {stderr}")
                 
+                # Try to connect
                 try:
-                    requests.get(f"http://localhost:{port}/", timeout=1)
+                    response = requests.get(f"http://localhost:{port}/", timeout=1)
+                    print(f"✅ Server responded with status {response.status_code} after {i*0.5:.1f}s")
                     server_ready = True
                     break
                 except requests.exceptions.ConnectionError:
+                    if i % 10 == 0 and i > 0:  # Print every 5 seconds
+                        print(f"⏳ Still waiting for server... ({i*0.5:.1f}s)")
+                    continue
+                except Exception as e:
+                    print(f"⚠️  Unexpected error during connection: {type(e).__name__}: {e}")
                     continue
             
             if not server_ready:
-                raise RuntimeError("Server failed to start")
+                # Get final debug info
+                try:
+                    # Don't use communicate() as it waits for process to end
+                    print(f"❌ Server failed to start after 30 seconds")
+                    print(f"   Process is alive: {process.poll() is None}")
+                    if process.poll() is not None:
+                        print(f"   Exit code: {process.returncode}")
+                except Exception as e:
+                    print(f"   Error getting process info: {e}")
+                raise RuntimeError("Server failed to start within 30 seconds")
             
             # Test the SSE endpoint with proper MCP protocol
             print("\n🔍 Testing MCP tools through SSE...")

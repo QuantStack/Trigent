@@ -11,7 +11,7 @@ from urllib.parse import quote
 import numpy as np
 import requests
 
-from rich_issue_mcp.config import get_config
+from trigent.config import get_config
 
 # Embedding dimension for Mistral embeddings
 EMBEDDING_DIM = 1024
@@ -83,7 +83,7 @@ def get_qdrant_config() -> dict[str, Any]:
 def get_collection_name(repo: str, config: dict[str, Any] | None = None) -> str:
     """Get the Qdrant collection name for a repository."""
     if config is None:
-        from rich_issue_mcp.config import get_config
+        from trigent.config import get_config
         config = get_config()
     
     # Get prefix from config, default to empty string

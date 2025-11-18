@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Migrate data from CouchDB to Qdrant vector database."""
 
+import argparse
 import json
 import sys
 from typing import Any, Dict, List, Optional
@@ -321,7 +322,8 @@ def main():
     
     # Get custom collection name if desired
     print(f"\nMigrating database: {db_name}")
-    print("Enter Qdrant collection name (press Enter to use default): ", end="")
+    default_collection = db_name.replace("/", "_").replace("-", "_").lower()
+    print(f"Enter Qdrant collection name (default: {default_collection}): ", end="")
     collection_name = input().strip()
     
     if not collection_name:

@@ -7,7 +7,7 @@ from typing import Any, Generator
 import pytest
 import requests
 
-from rich_issue_mcp.database import (
+from trigent.database import (
     get_collection_name,
     get_headers,
     get_qdrant_config,
@@ -64,7 +64,7 @@ def skip_if_no_config(config_available):
 @pytest.fixture(scope="session")
 def test_config(test_repo: str) -> dict[str, Any]:
     """Create test configuration with test collection prefix."""
-    from rich_issue_mcp.config import get_config
+    from trigent.config import get_config
     
     config = get_config()
     # Override collection prefix for testing
@@ -106,7 +106,7 @@ def clean_collection(test_repo: str, test_config: dict[str, Any], skip_if_no_qdr
 @pytest.fixture(scope="session")
 def populated_collection(test_repo: str, test_config: dict[str, Any], clean_collection: str, skip_if_no_config) -> str:
     """Populate the test collection with data (session-scoped)."""
-    from rich_issue_mcp.pull import fetch_issues
+    from trigent.pull import fetch_issues
     
     print(f"📊 Populating collection {clean_collection} with test data...")
     

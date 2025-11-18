@@ -12,7 +12,7 @@ import pandas as pd
 import requests
 from sklearn.neighbors import NearestNeighbors
 
-from rich_issue_mcp.config import get_cache
+from trigent.config import get_cache
 
 
 def _get_cache_key(content: str, model: str) -> str:

@@ -5,7 +5,7 @@ import curses
 import textwrap
 from typing import Any
 
-from rich_issue_mcp.database import load_issues
+from trigent.database import load_issues
 
 
 class IssueTUI:

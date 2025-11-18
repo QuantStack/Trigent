@@ -9,7 +9,7 @@ import numpy as np
 from sklearn.manifold import TSNE
 from sklearn.neighbors import NearestNeighbors
 
-from rich_issue_mcp.database import load_issues
+from trigent.database import load_issues
 
 
 def load_enriched_issues(repo: str) -> list[dict[str, Any]]:

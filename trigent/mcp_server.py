@@ -8,7 +8,7 @@ from typing import Any
 import requests
 from fastmcp import FastMCP
 
-from rich_issue_mcp.database import (
+from trigent.database import (
     get_collection_name,
     get_headers,
     get_qdrant_config,
@@ -16,7 +16,7 @@ from rich_issue_mcp.database import (
     load_issues,
     upsert_issues,
 )
-from rich_issue_mcp.enrich import get_mistral_embedding
+from trigent.enrich import get_mistral_embedding
 
 mcp = FastMCP("Rich Issues Server")
 

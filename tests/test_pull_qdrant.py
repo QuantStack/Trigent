@@ -17,7 +17,7 @@ import requests
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from rich_issue_mcp.database import (
+from trigent.database import (
     get_collection_name,
     get_headers,
     get_qdrant_config,
@@ -232,7 +232,7 @@ def test_pull_initial_data():
     # Mock the GitHub API calls
     with patch('subprocess.run', side_effect=mock_subprocess_run):
         # Import and run the pull function
-        from rich_issue_mcp.pull import fetch_issues
+        from trigent.pull import fetch_issues
         
         print(f"📥 Pulling issues for {test_repo}...")
         start_time = time.time()
@@ -335,7 +335,7 @@ def test_pull_updated_data():
     
     # Mock the GitHub API calls with updated data
     with patch('subprocess.run', side_effect=mock_subprocess_run_updated):
-        from rich_issue_mcp.pull import fetch_issues
+        from trigent.pull import fetch_issues
         
         print(f"📥 Pulling updated issues for {test_repo}...")
         start_time = time.time()

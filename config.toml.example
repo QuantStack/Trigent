@@ -29,9 +29,9 @@ max_issues = 1000
 # Must be an absolute path
 directory = "/path/to/your/data"  # Absolute path to data directory
 
-[couchdb]
-# CouchDB database configuration
-server_url = "http://localhost:5984"  # CouchDB server URL
-username = "admin"                    # CouchDB username (optional)
-password = "password"                 # CouchDB password (optional)
-timeout = 30                          # Request timeout in seconds (optional, default: 30)
+[qdrant]
+# Qdrant vector database configuration
+host = "localhost"                    # Qdrant server host
+port = 6333                          # Qdrant server port
+api_key = ""                         # Qdrant API key (optional, leave empty for no auth)
+timeout = 30                         # Request timeout in seconds (optional, default: 30)

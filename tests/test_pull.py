@@ -5,13 +5,13 @@ from typing import Any
 import pytest
 import requests
 
-from rich_issue_mcp.database import (
+from trigent.database import (
     get_qdrant_url,
     get_headers,
     get_qdrant_config,
     load_issues,
 )
-from rich_issue_mcp.pull import fetch_issues
+from trigent.pull import fetch_issues
 
 
 class TestPullFunctionality:

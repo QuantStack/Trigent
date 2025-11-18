@@ -9,14 +9,14 @@ from typing import Any
 import requests
 import toml
 
-from rich_issue_mcp.database import load_issues
-from rich_issue_mcp.enrich import enrich_issue
-from rich_issue_mcp.config import get_config
+from trigent.database import load_issues
+from trigent.enrich import enrich_issue
+from trigent.config import get_config
 
 
 def get_last_updated_date(repo: str, config: dict[str, Any] | None = None) -> datetime | None:
     """Get the most recent updated date from existing issues in database."""
-    from rich_issue_mcp.database import get_latest_updated_date_from_view, load_issues
+    from trigent.database import get_latest_updated_date_from_view, load_issues
     
     # Try the efficient view-based approach first
     try:
@@ -679,7 +679,7 @@ def process_and_save_issue(repo: str, issue: dict[str, Any], config: dict[str, A
     Returns:
         Processed issue if successful, None if comments or cross-references could not be fetched
     """
-    from rich_issue_mcp.database import upsert_issues
+    from trigent.database import upsert_issues
 
     issue_number = issue["number"]
 

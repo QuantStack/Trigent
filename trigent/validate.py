@@ -4,7 +4,7 @@
 from collections import defaultdict
 from typing import Any
 
-from rich_issue_mcp.database import load_issues, delete_issues
+from trigent.database import load_issues, delete_issues
 
 
 def validate_required_fields(item: dict[str, Any]) -> list[str]:
