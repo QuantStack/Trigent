@@ -1,6 +1,6 @@
-# Trigent—RAG for GitHub Issues
+# Trigent—RAG for Triaging GH Issues at Scale
 
-Trigent enables **Retrieval-Augmented Generation (RAG) over GitHub issues**. It fetches issues, enriches them with semantic embeddings, and provides an MCP server so AI agents can intelligently search, analyze, and triage large issue repositories.
+Trigent enables **Retrieval-Augmented Generation (RAG) over GitHub issues at scale**. It fetches issues, enriches them with semantic embeddings, and provides an MCP server so AI agents can intelligently search, analyze, and triage large issue repositories.
 
 ## What it does
 
@@ -15,6 +15,10 @@ Trigent enables **Retrieval-Augmented Generation (RAG) over GitHub issues**. It 
 # Install and configure
 pip install -e .
 cp config.toml.example config.toml  # Add your Mistral API key
+
+# Start Qdrant vector database
+docker run -p 6333:6333 qdrant/qdrant
+# or with Nix: services.qdrant.enable = true; (in configuration.nix)
 
 # Setup a repository (fetches and enriches data)
 trigent pull jupyterlab/jupyterlab
