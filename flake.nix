@@ -34,6 +34,9 @@
         sourcePreference = "wheel"; # or sourcePreference = "sdist";
       };
 
+      # Import mkApplication utility for creating package outputs
+      inherit (pkgs.callPackage pyproject-nix.build.util { }) mkApplication;
+
       pyprojectOverrides = _final: _prev: {
         # Implement build fixups here.
         # Note that uv2nix is _not_ using Nixpkgs buildPythonPackage.
@@ -122,6 +125,14 @@
     in
     {
       packages.${system} = {
+        # Main trigent package with CLI
+        default = mkApplication {
+          venv = pythonSet.mkVirtualEnv "trigent-env" workspace.deps.default;
+          package = pythonSet.trigent;
+        };
+        
+        trigent = self.packages.${system}.default;
+        
         closureInfo = pkgs.closureInfo {
           rootPaths = [self.devShells.${system}.default] ++
        (builtins.attrValues (builtins.mapAttrs (name: value: value.outPath) inputs));};
