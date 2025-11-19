@@ -36,21 +36,31 @@ class TestMCPServer:
         )
         
         try:
-            # Wait a bit for server to start up
-            time.sleep(2)
+            # Wait for server to start up (can take 1-2 minutes)
+            server_started = False
+            max_wait_time = 120  # 2 minutes
             
-            # Check if server is running
-            assert process.poll() is None, "MCP server process should still be running"
+            for i in range(max_wait_time):
+                time.sleep(1)
+                
+                # Check if server process is still running
+                if process.poll() is not None:
+                    stdout, stderr = process.communicate()
+                    print(f"❌ Server process exited: stdout={stdout}, stderr={stderr}")
+                    raise RuntimeError("MCP server process exited prematurely")
+                
+                # Try to connect to server
+                try:
+                    response = requests.get("http://localhost:8001/", timeout=2)
+                    print(f"✅ Server responded with status: {response.status_code} after {i+1} seconds")
+                    server_started = True
+                    break
+                except requests.exceptions.RequestException:
+                    if i % 15 == 0 and i > 0:  # Print every 15 seconds
+                        print(f"⏳ Still waiting for server startup... ({i+1}s)")
             
-            # Test basic HTTP endpoint (this depends on FastMCP's HTTP interface)
-            # Note: FastMCP might use different endpoints, this is a basic connectivity test
-            try:
-                response = requests.get("http://localhost:8001/", timeout=5)
-                print(f"✅ Server responded with status: {response.status_code}")
-                # Don't assert specific status code as FastMCP interface may vary
-            except requests.exceptions.RequestException as e:
-                print(f"📡 Server connection test: {e}")
-                # This is expected as we might not have the right endpoint
+            if not server_started:
+                raise RuntimeError(f"Server failed to start within {max_wait_time} seconds")
             
             # Let server run for a moment to ensure stability
             time.sleep(1)
@@ -111,11 +121,11 @@ class TestMCPServer:
         )
         
         try:
-            # Wait for server to start
+            # Wait for server to start (can take 1-2 minutes for large collections)
             server_ready = False
-            max_retries = 30
+            max_retries = 120  # 2 minutes total
             for i in range(max_retries):
-                time.sleep(0.5)
+                time.sleep(1.0)  # Check every second
                 
                 # Check if process is still running
                 if process.poll() is not None:
@@ -135,17 +145,25 @@ class TestMCPServer:
                     server_ready = True
                     break
                 except requests.exceptions.ConnectionError as e:
-                    if i % 5 == 0:
-                        print(f"⏳ Waiting for server to start... (attempt {i+1}/{max_retries})")
+                    if i % 10 == 0:  # Print every 10 seconds
+                        print(f"⏳ Still waiting for server... ({i+1}s)")
                 except requests.exceptions.RequestException as e:
                     print(f"   Connection attempt {i+1} failed: {type(e).__name__}: {e}")
             
             if not server_ready:
                 # Get server output for debugging
-                stdout, stderr = process.communicate(timeout=1)
                 print(f"❌ Server failed to start after {max_retries} attempts")
-                print(f"Server stdout: {stdout}")
-                print(f"Server stderr: {stderr}")
+                # Try to get output without blocking
+                try:
+                    # Kill the process first
+                    process.terminate()
+                    # Then get output with a short timeout
+                    stdout, stderr = process.communicate(timeout=2)
+                    print(f"Server stdout: {stdout}")
+                    print(f"Server stderr: {stderr}")
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    print("⚠️  Process had to be killed")
                 raise RuntimeError("Server failed to start")
             
             # Now let's test the MCP protocol through SSE endpoint

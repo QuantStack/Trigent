@@ -35,9 +35,6 @@ The system consists of several Python modules under `trigent/`:
 ### Additional Modules
 - **trigent/config.py**: Configuration management and caching
 - **trigent/database.py**: Database utilities and operations
-- **trigent/validate.py**: Data validation utilities
-- **trigent/visualize.py**: Data visualization tools
-- **trigent/tui.py**: Text user interface components
 
 ## Workflow
 
@@ -54,16 +51,14 @@ trigent update jupyterlab/jupyterlab
 # 3. Start MCP server for AI agent access
 trigent serve jupyterlab/jupyterlab
 
-# 4. Browse issues interactively
-trigent browse jupyterlab/jupyterlab
-
-# 5. Export data for analysis
+# 4. Export data for analysis
 trigent export jupyterlab/jupyterlab --csv --viz
 
-# 6. Validate database integrity
-trigent validate jupyterlab/jupyterlab
+# 5. Show collection statistics
+trigent stats                         # Show all collections
+trigent stats jupyterlab/jupyterlab   # Show specific repo
 
-# 7. Clean repository data
+# 6. Clean repository data
 trigent clean jupyterlab/jupyterlab
 ```
 
@@ -127,14 +122,23 @@ Trigent/
 │   ├── __init__.py
 │   ├── __main__.py          # Entry point for python -m trigent
 │   ├── cli.py               # CLI orchestration with all subcommands
+│   ├── clean.py             # Clean command implementation
+│   ├── update.py            # Update command implementation
+│   ├── stats.py             # Stats command implementation
 │   ├── pull.py              # GitHub issue fetching via gh CLI
 │   ├── enrich.py            # Data enrichment with embeddings/metrics
-│   ├── database.py          # TinyDB operations and utilities
-│   ├── mcp_server.py        # FastMCP server for database access
+│   ├── database.py          # Qdrant operations and utilities
 │   ├── config.py            # Configuration management and caching
-│   ├── validate.py          # Data validation utilities
-│   ├── visualize.py         # Data visualization tools
-│   └── tui.py               # Text user interface components
+│   ├── export/              # Export command + CSV/viz subdirectory
+│   │   ├── __init__.py
+│   │   ├── command.py       # Export command entry point
+│   │   ├── csv.py           # CSV export functionality
+│   │   └── visualize.py     # Visualization export
+│   └── serve/               # Serve command + MCP server subdirectory
+│       ├── __init__.py
+│       ├── __main__.py      # Entry point for python -m trigent.serve
+│       ├── command.py       # Serve command entry point
+│       └── mcp_server.py    # FastMCP server implementation
 ├── data/                    # Data storage directory
 │   └── issues-{repo}.db     # TinyDB database files (e.g., issues-jupyterlab-jupyterlab.db)
 ├── dcache/                  # Diskcache directory for API response caching

@@ -989,11 +989,15 @@ def run_mcp_server(
     print("🚀 Starting MCP server")
     print(f"📂 Using repository: {repo}")
 
-    # Use HTTP transport (SSE) if host/port are specified and not default localhost
+    # Use HTTP transport (SSE) if port is not default 8000
     # Otherwise use stdio transport (default for MCP)
-    if host != "localhost" or port != 8000:
+    if port != 8000:
         print(f"🌐 Starting HTTP server on {host}:{port}")
-        mcp.run(transport="sse", host=host, port=port)
+        try:
+            mcp.run(transport="sse", host=host, port=port)
+        except Exception as e:
+            print(f"❌ Failed to start HTTP server: {e}")
+            raise
     else:
         print("📡 Using STDIO transport")
         mcp.run()

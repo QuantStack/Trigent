@@ -3,15 +3,14 @@
 
 import argparse
 
-from trigent.browse.command import browse_repository
 from trigent.clean import clean_repository
 from trigent.config import get_config
 from trigent.enrich import enrich_issues
 from trigent.export.command import export_repository
 from trigent.pull import fetch_issues
 from trigent.serve.command import serve_repository
+from trigent.stats import show_collection_statistics
 from trigent.update import update_repository
-from trigent.validate import validate_database
 
 
 def cmd_pull(args, config) -> None:
@@ -66,14 +65,6 @@ def cmd_serve(args, config) -> None:
     serve_repository(args.repo, args.host, args.port, config)
 
 
-def cmd_browse(args, config) -> None:
-    """Browse repository issues interactively."""
-    # Apply prefix to config if provided
-    if hasattr(args, "prefix") and args.prefix:
-        config.setdefault("qdrant", {})["collection_prefix"] = args.prefix
-
-    browse_repository(args.repo, config)
-
 
 def cmd_export(args, config) -> None:
     """Export repository data to various formats."""
@@ -100,18 +91,14 @@ def cmd_clean(args, config) -> None:
     clean_repository(getattr(args, "repo", None), getattr(args, "yes", False), config)
 
 
-def cmd_validate(args, config) -> None:
-    """Validate repository data integrity."""
+def cmd_stats(args, config) -> None:
+    """Show statistics for collections."""
     # Apply prefix to config if provided
     if hasattr(args, "prefix") and args.prefix:
         config.setdefault("qdrant", {})["collection_prefix"] = args.prefix
 
-    print(f"🔍 Validating repository: {args.repo}")
-    success = validate_database(
-        args.repo, delete_invalid=getattr(args, "delete_invalid", False), config=config
-    )
-    if not success:
-        exit(1)
+    show_collection_statistics(getattr(args, "repo", None), config)
+
 
 
 def main() -> None:
@@ -170,16 +157,6 @@ def main() -> None:
     )
     serve_parser.set_defaults(func=cmd_serve)
 
-    # Browse command (TUI)
-    browse_parser = subparsers.add_parser(
-        "browse", help="Browse repository issues interactively"
-    )
-    browse_parser.add_argument("repo", help="Repository to browse (e.g., 'owner/repo')")
-    browse_parser.add_argument(
-        "--prefix", help="Collection prefix for isolating data (useful for testing)"
-    )
-    browse_parser.set_defaults(func=cmd_browse)
-
     # Export command
     export_parser = subparsers.add_parser(
         "export", help="Export repository data to various formats"
@@ -213,20 +190,17 @@ def main() -> None:
     )
     clean_parser.set_defaults(func=cmd_clean)
 
-    # Validate command
-    validate_parser = subparsers.add_parser(
-        "validate", help="Validate repository data integrity"
+    # Stats command
+    stats_parser = subparsers.add_parser(
+        "stats", help="Show statistics for collections"
     )
-    validate_parser.add_argument(
-        "repo", help="Repository to validate (e.g., 'owner/repo')"
+    stats_parser.add_argument(
+        "repo", nargs="?", help="Repository to show stats for (all if not specified)"
     )
-    validate_parser.add_argument(
-        "--delete-invalid", action="store_true", help="Delete invalid entries"
-    )
-    validate_parser.add_argument(
+    stats_parser.add_argument(
         "--prefix", help="Collection prefix for isolating data (useful for testing)"
     )
-    validate_parser.set_defaults(func=cmd_validate)
+    stats_parser.set_defaults(func=cmd_stats)
 
     args = parser.parse_args()
 

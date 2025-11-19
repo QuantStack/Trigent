@@ -44,10 +44,9 @@ The MCP server provides these tools for AI agents:
 ## Other Commands
 
 ```bash
-trigent browse <repo>     # Interactive terminal browser
 trigent export <repo>     # Export to CSV or visualizations  
-trigent validate <repo>   # Check data integrity
 trigent clean <repo>      # Remove repository data
+trigent stats [<repo>]    # Show collection statistics
 ```
 
 ## Configuration
