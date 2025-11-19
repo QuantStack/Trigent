@@ -80,7 +80,10 @@
               overlay
               pyprojectOverrides
             ]
-          );
+            );
+
+       venv = pythonSet.mkVirtualEnv "trigent-venv" workspace.deps.all;
+
        devShell = {
         default =
           let
@@ -94,7 +97,7 @@
 
             # Build virtual environment, with local packages being editable.
             # Enable all optional dependencies for development.
-            virtualenv = editablePythonSet.mkVirtualEnv "rich-issue-mcp-dev-env" workspace.deps.all;
+            virtualenv = editablePythonSet.mkVirtualEnv "trigent-dev-env" workspace.deps.all;
 
           in
           pkgs.mkShell {
@@ -126,12 +129,12 @@
     {
       packages.${system} = {
         # Main trigent package with CLI
-        default = mkApplication {
-          venv = pythonSet.mkVirtualEnv "trigent-env" workspace.deps.default;
-          package = pythonSet.trigent;
+        trigent = mkApplication {
+          venv = venv;
+          package = pythonSet.${system}.trigent;
         };
         
-        trigent = self.packages.${system}.default;
+        default = self.packages.${system}.trigent;
         
         closureInfo = pkgs.closureInfo {
           rootPaths = [self.devShells.${system}.default] ++
