@@ -128,24 +128,16 @@
     in
     {
       packages.${system} = {
-        # Main trigent package with CLI
+        pythonSet = pythonSet;
+
         trigent = mkApplication {
           venv = venv;
-          package = pythonSet.${system}.trigent;
+          package = pythonSet.trigent;
         };
         
         default = self.packages.${system}.trigent;
+      };
         
-        closureInfo = pkgs.closureInfo {
-          rootPaths = [self.devShells.${system}.default] ++
-       (builtins.attrValues (builtins.mapAttrs (name: value: value.outPath) inputs));};
-        registerClosureScript = (
-        pkgs.writeShellScriptBin "register-rich-issue-mcp-closure" ''
-          #!/usr/bin/env bash
-          echo "Registering Rich Issue MCP development environment closure..."
-          sudo nix-store --load-db < ${self.packages.${system}.closureInfo}/registration
-          '');
-        };
       devShells.${system} = devShell;
     };
 }
