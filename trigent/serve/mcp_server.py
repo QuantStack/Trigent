@@ -17,6 +17,7 @@ from trigent.database import (
     upsert_issues,
 )
 from trigent.enrich import get_mistral_embedding
+from trigent.metrics import calculate_priority_score
 
 mcp = FastMCP("Rich Issues Server")
 
@@ -559,6 +560,11 @@ def add_recommendation(
 
     review_id = str(uuid.uuid4())
 
+    # Calculate priority score
+    priority_score = calculate_priority_score(
+        severity, frequency, prevalence, solution_complexity, solution_risk
+    )
+
     # Create new recommendation with enhanced schema
     new_recommendation = {
         "recommendation": recommendation,
@@ -573,6 +579,7 @@ def add_recommendation(
             "solution_complexity": solution_complexity,
             "solution_risk": solution_risk,
         },
+        "priority_score": priority_score,
         "context": {
             "affected_packages": affected_packages,
             "affected_paths": affected_paths,

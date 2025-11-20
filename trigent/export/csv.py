@@ -4,6 +4,7 @@ import csv
 from pathlib import Path
 
 from trigent.database import load_issues
+from trigent.metrics import get_recommendation_priority_score
 
 
 def export_csv(repo: str, output_path: str | None, config: dict) -> None:
@@ -27,6 +28,7 @@ def export_csv(repo: str, output_path: str | None, config: dict) -> None:
     csv_rows = []
     for issue in issues_with_recs:
         first_rec = issue["recommendations"][0]
+        analysis = first_rec.get("analysis", {})
 
         # Create flattened row with key fields
         row = {
@@ -38,10 +40,16 @@ def export_csv(repo: str, output_path: str | None, config: dict) -> None:
             "labels": ", ".join(
                 [label.get("name", "") for label in issue.get("labels", [])]
             ),
-            "comments_count": issue.get("comments_count", 0),
+            "comments_count": issue.get("comment_count", 0),
             "recommendation": first_rec.get("recommendation"),
             "confidence": first_rec.get("confidence"),
             "rationale": first_rec.get("rationale"),
+            "severity": analysis.get("severity", ""),
+            "frequency": analysis.get("frequency", ""),
+            "prevalence": analysis.get("prevalence", ""),
+            "solution_complexity": analysis.get("solution_complexity", ""),
+            "solution_risk": analysis.get("solution_risk", ""),
+            "priority_score": get_recommendation_priority_score(first_rec),
         }
         csv_rows.append(row)
 
