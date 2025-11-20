@@ -65,7 +65,6 @@ def cmd_serve(args, config) -> None:
     serve_repository(args.repo, args.host, args.port, config)
 
 
-
 def cmd_export(args, config) -> None:
     """Export repository data to various formats."""
     # Apply prefix to config if provided
@@ -100,12 +99,19 @@ def cmd_stats(args, config) -> None:
     show_collection_statistics(getattr(args, "repo", None), config)
 
 
-
 def main() -> None:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
         description="Trigent - A Rich Issue MCP for GitHub Triaging at Scale"
     )
+
+    # Global config flag available for all commands
+    parser.add_argument(
+        "--config",
+        "-c",
+        help="Path to config.toml file (default: ./config.toml, then project root/config.toml)",
+    )
+
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # Pull command (initial setup)
@@ -210,7 +216,7 @@ def main() -> None:
 
     # Read config once and pass to all commands
     try:
-        config = get_config()
+        config = get_config(getattr(args, "config", None))
     except FileNotFoundError as e:
         print(f"❌ {e}")
         return

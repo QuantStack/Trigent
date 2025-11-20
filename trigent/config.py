@@ -8,11 +8,19 @@ import toml
 
 # Global cache instance
 _cache_instance = None
+# Global config path for cache initialization
+_cache_config_path = None
 
 
-def get_cache() -> dc.Cache:
+def get_cache(config_path: str | None = None) -> dc.Cache:
     """Get the global cache instance."""
-    global _cache_instance
+    global _cache_instance, _cache_config_path
+
+    # If config_path changed, reset cache instance
+    if config_path != _cache_config_path:
+        _cache_instance = None
+        _cache_config_path = config_path
+
     if _cache_instance is None:
         # Default cache directory in project root
         project_root = Path(__file__).parent.parent
@@ -20,7 +28,7 @@ def get_cache() -> dc.Cache:
 
         # Try to get cache settings from config
         try:
-            config = get_config()
+            config = get_config(config_path)
             cache_config = config.get("cache", {})
             cache_dir = Path(cache_config.get("directory", cache_dir))
             size_limit = cache_config.get("size_limit_mb", 500) * 1024 * 1024
