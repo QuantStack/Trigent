@@ -35,3 +35,10 @@ host = "localhost"                    # Qdrant server host
 port = 6333                          # Qdrant server port
 api_key = ""                         # Qdrant API key (optional, leave empty for no auth)
 timeout = 30                         # Request timeout in seconds (optional, default: 30)
+
+[board]
+# GitHub Project Board export configuration
+# Use EITHER org_or_user OR repository (not both)
+org_or_user = "your-org-or-username"  # GitHub organization or username
+# repository = "owner/repo"           # For repository-level projects
+project_number = 1                    # Project number (from the project URL)

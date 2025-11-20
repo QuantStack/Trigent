@@ -76,6 +76,8 @@ def cmd_export(args, config) -> None:
         getattr(args, "output", None),
         getattr(args, "csv", False),
         getattr(args, "viz", False),
+        getattr(args, "board", False),
+        getattr(args, "project", None),
         getattr(args, "scale", 1.0),
         config,
     )
@@ -173,6 +175,13 @@ def main() -> None:
     )
     export_parser.add_argument(
         "--viz", action="store_true", help="Export visualizations"
+    )
+    export_parser.add_argument(
+        "--board", action="store_true", help="Export to GitHub Project Board"
+    )
+    export_parser.add_argument(
+        "--project",
+        help="Override board config: 'org/project_num', 'user/project_num', 'owner/repo/project_num', or 'org/', 'user/', 'owner/repo/' to create new board (e.g., 'myorg/1' or 'myorg/' for new)",
     )
     export_parser.add_argument("--output", "-o", help="Output file/directory path")
     export_parser.add_argument(
